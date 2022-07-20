@@ -16,7 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
 
     parser.add_argument('--weight', type=str, help='',
-                        default='/home/psdz/HDD/quan/output/experiment_1/checkpoints/model_unet.pth')
+                        default='/home/psdz/HDD/quan/output/experiment_3/checkpoints/model_unet.pth')
     parser.add_argument('--device', type=str, default='cuda')
 
     parser.add_argument('--mask_dir', type=str, help='',
@@ -123,7 +123,10 @@ def main_with_mask(fix_mask=False, run_count=1):
 
     # network = UNet()
     network = UNet_Gan()
-    weight = torch.load(args.weight)['state_dict']
+    save_bin = torch.load(args.weight)
+    weight = save_bin['state_dict']
+    print('[Epoch]: ', save_bin['epoch'], '[Meta]: ', save_bin['meta'])
+
     # load_weight = {}
     # for key in weight:
     #     if 'perceptual_loss_fn' not in key:
@@ -207,4 +210,9 @@ def main_with_mask(fix_mask=False, run_count=1):
                 imgs = fake_img
 
 if __name__ == '__main__':
-    main_with_mask(fix_mask=True, run_count=6)
+    main_with_mask(fix_mask=True, run_count=5)
+
+    # args = parse_args()
+    # weight = torch.load('/home/psdz/HDD/quan/output/experiment_3/checkpoints/model_unet.pth')
+    # print(weight['epoch'])
+    # print(weight['meta'])

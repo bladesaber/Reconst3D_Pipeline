@@ -94,6 +94,8 @@ class CustomDataset(Dataset):
         # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         obj_multi_mask = cv2.imread(obj_mask_path, cv2.IMREAD_UNCHANGED)
+        if obj_multi_mask.ndim==3:
+            obj_multi_mask = obj_multi_mask[:, :, 0]
         img, _ = self.post_process(img, obj_multi_mask)
 
         obj_mask = np.zeros(obj_multi_mask.shape)

@@ -12,13 +12,6 @@ from torchvision.models.feature_extraction import create_feature_extractor
 from models.RIAD.loss_utils import SSIMLoss, MSGMSLoss
 from torchmetrics.functional import accuracy
 
-'''
-有两种方法可以使重建产生清除效果
-1.收缩先验分布
-2.截断先验分布的重建误差，然后多次循环推断
-实际应用中，应该只变更高响应区域，其他区域保留原图以进行循环推断
-'''
-
 def upconv2x2(in_channels, out_channels, mode="transpose"):
     if mode == "transpose":
         return nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1)

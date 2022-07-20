@@ -9,7 +9,7 @@ import datetime
 import numpy as np
 
 from tensorboardX import SummaryWriter
-from models.utils.utils import Best_Saver
+from models.utils.utils import Last_Saver
 from models.RIAD.model_unet_gan import UNet_Gan, Res_Discriminator, SN_Discriminator
 from models.RIAD.aug_dataset import CustomDataset
 from models.RIAD.model_unet_gan import Adv_BCELoss_Trainer, Adv_MapLoss_Trainer
@@ -19,13 +19,17 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
 
     parser.add_argument('--experient', type=str, help='',
-                        default='experiment_2')
+                        default='experiment_3')
     parser.add_argument('--save_dir', type=str, help='',
                         default='/home/psdz/HDD/quan/output')
     parser.add_argument('--mask_dir', type=str, help='',
-                        default='/home/psdz/HDD/quan/RAID/masks')
+                        # default='/home/psdz/HDD/quan/RAID/masks'
+                        default='/home/psdz/HDD/quan/output/test/mask'
+                        )
     parser.add_argument('--img_dir', type=str, help='',
-                        default='/home/psdz/HDD/quan/RAID/images')
+                        # default='/home/psdz/HDD/quan/RAID/images'
+                        default='/home/psdz/HDD/quan/output/test/img'
+                        )
 
     parser.add_argument('--device', type=str, default='cuda')
 
@@ -37,7 +41,10 @@ def parse_args():
     parser.add_argument('--max_epoches', type=int, default=20000)
 
     parser.add_argument('--gen_stack', type=int, default=1)
-    parser.add_argument('--dis_stack', type=int, default=5)
+    parser.add_argument('--dis_stack', type=int,
+                        # default=5
+                        default=3
+                        )
 
     parser.add_argument('--batch_size', type=int, default=6)
     parser.add_argument('--width', type=int, default=640)
@@ -45,11 +52,11 @@ def parse_args():
 
     parser.add_argument('--warmup', type=int, default=10)
     parser.add_argument('--lr_update_patient', type=int, default=10)
-    parser.add_argument('--checkpoint_interval', type=int, default=1)
+    parser.add_argument('--checkpoint_interval', type=int, default=10)
     parser.add_argument('--minimum_lr', type=float, default=1e-4)
 
     parser.add_argument('--resume_generator_path', type=str,
-                        default='/home/psdz/HDD/quan/output/experiment_1/checkpoints/model_unet.pth'
+                        default='/home/psdz/HDD/quan/output/experiment_3/checkpoints/model_unet.pth'
                         # default=None
                         )
     parser.add_argument('--resume_discirmator_path', type=str,
@@ -102,7 +109,7 @@ def train_discrimator():
         discrimator = discrimator.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    discrimator_saver = Best_Saver(
+    discrimator_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_discrimator.pth"),
         meta=time_tag
     )
@@ -214,7 +221,7 @@ def train_unet():
         unet = unet.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    unet_saver = Best_Saver(
+    unet_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_unet.pth"),
         meta=time_tag
     )
@@ -354,11 +361,11 @@ def train_unet_with_discrimator():
         discrimator = discrimator.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    unet_saver = Best_Saver(
+    unet_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_unet.pth"),
         meta=time_tag
     )
-    discrimator_saver = Best_Saver(
+    discrimator_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_discrimator.pth"),
         meta=time_tag
     )
@@ -518,7 +525,7 @@ def train_unet_from_discrimator():
         discrimator = discrimator.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    unet_saver = Best_Saver(
+    unet_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_unet.pth"),
         meta=time_tag
     )
@@ -664,7 +671,7 @@ def train_unet_with_gan():
         with_aug=False,
         with_normalize=True,
         width=args.width, height=args.height,
-        cutout_sizes=(2, ), num_disjoint_masks=3
+        cutout_sizes=(2, 4), num_disjoint_masks=3
     )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -673,11 +680,11 @@ def train_unet_with_gan():
         discrimator = discrimator.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    unet_saver = Best_Saver(
+    unet_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_unet.pth"),
         meta=time_tag
     )
-    discrimator_saver = Best_Saver(
+    discrimator_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_discrimator.pth"),
         meta=time_tag
     )
@@ -812,6 +819,9 @@ def train_unet_with_gan():
         if epoch > args.max_epoches:
             break
 
+    unet_saver.save(unet, score=cur_gen_loss, epoch=epoch)
+    discrimator_saver.save(discrimator, score=cur_dis_loss, epoch=epoch)
+
 def train_unet_with_loopinfer():
     args = parse_args()
 
@@ -851,7 +861,7 @@ def train_unet_with_loopinfer():
         unet = unet.to(torch.device('cuda:0'))
 
     time_tag = (datetime.datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    unet_saver = Best_Saver(
+    unet_saver = Last_Saver(
         path=os.path.join(save_dir, 'checkpoints', "model_unet.pth"),
         meta=time_tag
     )
@@ -962,6 +972,74 @@ def train_unet_with_loopinfer():
         if epoch > args.max_epoches:
             break
 
+def test_infer():
+    args = parse_args()
+    device = args.device
+
+    unet = UNet_Gan()
+    save_bin = torch.load(args.resume_generator_path)
+    unet_weight = save_bin['state_dict']
+    print('[Epoch]: ', save_bin['epoch'], '[Meta]: ', save_bin['meta'])
+    unet.load_state_dict(unet_weight)
+    print('[DEBUG]: Loading weight %s Successfuly' % args.resume_generator_path)
+    unet.eval()
+
+    dataset = CustomDataset(
+        img_dir=args.img_dir,
+        mask_dir=args.mask_dir,
+        channel_first=True,
+        with_aug=False,
+        with_normalize=True,
+        width=args.width, height=args.height,
+        cutout_sizes=(2, 4), num_disjoint_masks=3
+    )
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+
+    if device == 'cuda':
+        unet = unet.to(torch.device('cuda:0'))
+
+    state = True
+    while state:
+
+        with torch.no_grad():
+            for i, data_batch in enumerate(dataloader):
+                batch_imgs, batch_masks, batch_mask_imgs, batch_obj_masks = data_batch
+                if device == 'cuda':
+                    batch_imgs = batch_imgs.to(torch.device('cuda:0'))
+                    batch_masks = batch_masks.to(torch.device('cuda:0'))
+                    batch_mask_imgs = batch_mask_imgs.to(torch.device('cuda:0'))
+                    batch_obj_masks = batch_obj_masks.to(torch.device('cuda:0'))
+
+                fake_img = unet.infer(disjoint_masks=batch_masks, mask_imgs=batch_mask_imgs)
+
+                bimgs_cpu = batch_imgs.detach().cpu().numpy()
+                bimgs_cpu = bimgs_cpu[0, ...]
+                bimgs_cpu = (np.transpose(bimgs_cpu, (1, 2, 0)) * 255.).astype(np.uint8)
+
+                bm_imgs_cpu = batch_mask_imgs.detach().cpu().numpy()
+                bm_imgs_cpu = bm_imgs_cpu[0, ...]
+                b_masks_cpu = batch_masks.detach().cpu().numpy()
+                b_masks_cpu = b_masks_cpu[0, ...]
+
+                iimg = np.zeros(bimgs_cpu.shape, dtype=np.uint8)
+                for idx in range(bm_imgs_cpu.shape[0]):
+                    mimg_cpu = (np.transpose(bm_imgs_cpu[idx, ...], (1, 2, 0)) * 255.).astype(np.uint8)
+                    m_cpu = b_masks_cpu[idx, ...]
+                    iimg[m_cpu==1] = mimg_cpu[m_cpu==1]
+
+                fake_img = fake_img.detach().cpu().numpy()
+                fake_img = (np.transpose(fake_img[0, ...], (1, 2, 0)) * 255.).astype(np.uint8)
+
+                cv2.imshow('orig', bimgs_cpu)
+                cv2.imshow('input', iimg)
+                cv2.imshow('fake', fake_img)
+                key = cv2.waitKey(0)
+                if key == ord('q'):
+                    state = False
+                    break
+                else:
+                    pass
+
 if __name__ == '__main__':
     # train_unet()
     # train_unet_with_loopinfer()
@@ -970,6 +1048,7 @@ if __name__ == '__main__':
     # train_unet_with_discrimator()
     # train_unet_from_discrimator()
 
-    train_unet_with_gan()
+    # train_unet_with_gan()
+    test_infer()
 
     pass
