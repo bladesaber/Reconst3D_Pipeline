@@ -39,3 +39,20 @@ bool EdgePointOnCurve::operator()(const T *params, T *error) const {
     return true;
 }
 
+// C++规范，如果有成对.cpp/.h，所有的非类函数不可放在.h，否则产生多重定义
+void declareTestTypes(py::module &m) {
+    py::class_<Test>(m, "Test")
+            .def(py::init<>())
+            .def("add", &Test::add);
+
+    py::class_<VertexParams, g2o::OptimizableGraph::Vertex>(m, "VertexParams")
+            .def(py::init<>())
+            .def("setId", &VertexParams::setId)
+            .def("setEstimate", &VertexParams::setEstimate);
+    py::class_<EdgePointOnCurve, g2o::OptimizableGraph::Edge>(m, "EdgePointOnCurve")
+            .def(py::init<>())
+            .def("setId", &EdgePointOnCurve::setId)
+            // .def("setVertex", &EdgePointOnCurve::setVertex, "i"_a, "v"_a)
+            .def("setMeasurement", &EdgePointOnCurve::setMeasurement)
+            .def("setInformation", &EdgePointOnCurve::setInformation);
+}

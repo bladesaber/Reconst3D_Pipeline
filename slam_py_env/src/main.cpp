@@ -3,9 +3,15 @@
 //
 
 #include "iostream"
+#include "g2o/core/sparse_optimizer.h"
 #include "types_test.h"
 
 using namespace std;
+
+void addVertex_test(g2o::SparseOptimizer* opt, VertexParams* vertex){
+    opt->addVertex(vertex);
+    cout<<"asdad"<<endl;
+}
 
 int main(){
 
@@ -17,11 +23,9 @@ int main(){
     params->setId(0);
     params->setEstimate(Eigen::Vector3d(1, 1, 1));
 
-    Eigen::Vector2d* point = new Eigen::Vector2d(10.0, 20.0);
-    EdgePointOnCurve* e = new EdgePointOnCurve;
-//    e->setInformation(Eigen::Matrix<double, 1, 1>::Identity());
-//    e->setVertex(0, params);
-//    e->setMeasurement(point);
+    g2o::SparseOptimizer* opt = new g2o::SparseOptimizer();
+//    opt->addVertex(params);
+    addVertex_test(opt, params);
 
     cout<<"Finish"<<endl;
 

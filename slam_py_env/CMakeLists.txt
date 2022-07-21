@@ -23,7 +23,8 @@ link_directories(
 )
 
 pybind11_add_module(slam_py src/slam_py.cpp
-        src/types_test.cpp)
+        src/types_test.cpp
+        )
 #add_executable(slam_py src/main.cpp
 #        src/types_test.cpp)
 
