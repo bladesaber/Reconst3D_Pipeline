@@ -12,22 +12,47 @@
 #include "g2o/core/sparse_optimizer.h"
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/solvers/eigen//linear_solver_eigen.h"
-#include "g2o/solvers/csparse//linear_solver_csparse.h"
 #include "string.h"
 
 #include "types_test.h"
+
+G2O_USE_OPTIMIZATION_LIBRARY(eigen);
+G2O_USE_OPTIMIZATION_LIBRARY(dense);
 
 namespace py = pybind11;
 using namespace pybind11::literals;
 
 template<typename T1, typename T2>
-void EdgeaddVertex(T1* edge, T2* vertex, int id){
-    edge->setVertex(id, vertex);
+void EdgeSetVertex(T1& edge, int id, T2& vertex){
+    edge.setVertex(id, &vertex);
 //    std::cout<<"Edge add vertex success"<<std::endl;
 }
 
-g2o::OptimizationAlgorithm* opt_construct(std::string& tag, g2o::OptimizationAlgorithmProperty solverProperty){
-    return g2o::OptimizationAlgorithmFactory::instance()->construct(tag,solverProperty);
+template<typename T>
+void SetAlgorithm(T& optimizer, std::string& tag, g2o::OptimizationAlgorithmProperty& solverProperty){
+    g2o::OptimizationAlgorithm* algo = g2o::OptimizationAlgorithmFactory::instance()->construct(tag,solverProperty);
+    optimizer.setAlgorithm(algo);
+}
+
+template<typename T>
+void PrintfGraphInfo(T& optimizer){
+    int edge_count = (optimizer.edges()).size();
+    int vertex_count = (optimizer.vertices()).size();
+    std::cout<<"Edge Num: "<<edge_count<<std::endl;
+    std::cout<<"Vertex Num: "<<vertex_count<<std::endl;
+}
+
+template<typename T1>
+EdgePointOnCurve OptAddEdge(T1& opt, VertexParams& vertex){
+    // todo why ???
+    EdgePointOnCurve* e = new EdgePointOnCurve;
+
+    e->setVertex(0, &vertex);
+    bool stat = opt.addEdge(e);
+
+    std::cout<< (e->vertices()).size()<<" : "<<stat<<std::endl;
+
+    return *e;
 }
 
 void declareOptimizerTypes(py::module &m) {
@@ -50,10 +75,15 @@ void declareOptimizerTypes(py::module &m) {
             .def("addEdge", static_cast<bool (g2o::SparseOptimizer::*)(g2o::OptimizableGraph::Edge*)>(&g2o::SparseOptimizer::addEdge))
             .def("addEdge", static_cast<bool (g2o::SparseOptimizer::*)(g2o::HyperGraph::Edge*)>(&g2o::SparseOptimizer::addEdge));
 
-    m.def("EdgeaddVertex", &EdgeaddVertex<g2o::OptimizableGraph::Edge, g2o::OptimizableGraph::Vertex>);
+    m.def("EdgeSetVertex", &EdgeSetVertex<g2o::OptimizableGraph::Edge, g2o::OptimizableGraph::Vertex>);
 
-    py::class_<g2o::OptimizationAlgorithmProperty>(m, "OptimizationAlgorithmProperty");
-    m.def("opt_construct", &opt_construct)
+    py::class_<g2o::OptimizationAlgorithmProperty>(m, "OptimizationAlgorithmProperty")
+            .def(py::init<>());
+
+    m.def("SetAlgorithm", &SetAlgorithm<g2o::SparseOptimizer>);
+    m.def("PrintfGraphInfo", &PrintfGraphInfo<g2o::SparseOptimizer>);
+
+    m.def("OptAddEdge", &OptAddEdge<g2o::SparseOptimizer>);
 
 }
 

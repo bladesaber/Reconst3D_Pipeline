@@ -8,14 +8,22 @@
 #include <pybind11/pybind11.h>
 #include "iostream"
 #include <g2o/core/eigen_types.h>
+
+#include "pybind11/eigen.h"
+#include "pybind11/stl.h"
+
 #include <Eigen/Core>
 #include <Eigen/src/Core/DenseCoeffsBase.h>
+
+#include "types_test.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
 
 void declareEigenTypes(py::module &m) {
 
+    /*
+    // if you use pybind11/eigen.h, please do not define the object again
     py::class_<Eigen::Vector3d>(m, "Vector3d")
             .def(py::init<>())
             .def(py::init<const Eigen::Vector3d &>())
@@ -35,6 +43,7 @@ void declareEigenTypes(py::module &m) {
             .def("y", [](Eigen::Vector2d* v){return v->y();})
             .def("setX", [](Eigen::Vector2d* v, float x){v->x()=x;})
             .def("setY", [](Eigen::Vector2d* v, float y){v->y()=y;});
+    */
 
 }
 

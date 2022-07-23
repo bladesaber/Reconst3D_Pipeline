@@ -29,36 +29,79 @@ public:
     int add(int x, int y);
 };
 
+//class VertexParams : public g2o::BaseVertex<3, Eigen::Vector3d> {
+//public:
+//    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+//
+//    VertexParams() {}
+//
+//    bool read(std::istream &);
+//
+//    bool write(std::ostream &) const;
+//
+//    void setToOriginImpl() {};
+//
+//    void oplusImpl(const double *update);
+//
+//};
+//
+//class EdgePointOnCurve : public g2o::BaseUnaryEdge<1, Eigen::Vector2d, VertexParams> {
+//public:
+//    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+//
+//    EdgePointOnCurve() {};
+//
+//    virtual bool read(std::istream & /*is*/);
+//
+//    virtual bool write(std::ostream & /*os*/) const;
+//
+//    template<typename T>
+//    bool operator()(const T *params, T *error) const;
+//
+//    G2O_MAKE_AUTO_AD_FUNCTIONS
+//};
+
 class VertexParams : public g2o::BaseVertex<3, Eigen::Vector3d> {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-
     VertexParams() {}
 
-    bool read(std::istream &);
+    bool read(std::istream& /*is*/) { return false; }
 
-    bool write(std::ostream &) const;
+    bool write(std::ostream& /*os*/) const { return false; }
 
-    void setToOriginImpl() {};
+    void setToOriginImpl() {}
 
-    void oplusImpl(const double *update);
-
+    void oplusImpl(const double* update) {
+        Eigen::Vector3d::ConstMapType v(update);
+        _estimate += v;
+    }
 };
 
-class EdgePointOnCurve : public g2o::BaseUnaryEdge<1, Eigen::Vector2d, VertexParams> {
+class EdgePointOnCurve: public g2o::BaseUnaryEdge<1, Eigen::Vector2d, VertexParams> {
 public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    EdgePointOnCurve() {}
+    virtual bool read(std::istream& /*is*/) {
+        cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+        return false;
+    }
+    virtual bool write(std::ostream& /*os*/) const {
+        cerr << __PRETTY_FUNCTION__ << " not implemented yet" << endl;
+        return false;
+    }
 
-    EdgePointOnCurve() {};
+    template <typename T>
+    bool operator()(const T* params, T* error) const {
+        const T& a = params[0];
+        const T& b = params[1];
+        const T& lambda = params[2];
+        T fval = a * exp(-lambda * T(measurement()(0))) + b;
+        error[0] = fval - measurement()(1);
+        return true;
+    }
 
-    virtual bool read(std::istream & /*is*/);
-
-    virtual bool write(std::ostream & /*os*/) const;
-
-    template<typename T>
-    bool operator()(const T *params, T *error) const;
-
-    G2O_MAKE_AUTO_AD_FUNCTIONS
+    G2O_MAKE_AUTO_AD_FUNCTIONS  // use autodiff
 };
 
 void declareTestTypes(py::module &m);

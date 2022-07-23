@@ -8,6 +8,8 @@
 #include "types_optimizer.h"
 #include "types_test.h"
 
+#include "types_application.h"
+
 namespace py = pybind11;
 
 PYBIND11_MODULE(slam_py, m) {
@@ -18,4 +20,5 @@ PYBIND11_MODULE(slam_py, m) {
 
     declareTestTypes(m);
 
+    declareApplicationTypes(m);
 }
