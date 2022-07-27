@@ -6,7 +6,9 @@
 
 #include "types_eigen.h"
 #include "types_optimizer.h"
+
 #include "types_test.h"
+#include "types_dbow.h"
 
 namespace py = pybind11;
 
@@ -17,5 +19,5 @@ PYBIND11_MODULE(slam_py, m) {
     declareOptimizerTypes(m);
 
     declareTestTypes(m);
-
+    declareDBOWTypes(m);
 }
