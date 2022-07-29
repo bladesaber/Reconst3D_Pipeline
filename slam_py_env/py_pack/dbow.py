@@ -184,7 +184,7 @@ if __name__ == '__main__':
     # tree_node.fit(a)
     # print(time.time() - start)
 
-    img_dir = '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/dbow_py/example_imgs'
+    img_dir = '/slam_py_env/py_pk/example_imgs'
 
     dbow_library = DBOW_ORB(level_num=2, nfeatures=1000)
 

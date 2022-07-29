@@ -25,7 +25,7 @@ def vob_test():
     # voc_library = dbow_task.createVoc(branch_factor, tree_level, weight_type, score_type)
 
     orb_extractor = cv2.ORB_create(nfeatures=300)
-    img_dir = '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/dbow_py/example_imgs'
+    img_dir = '/slam_py_env/py_pk/example_imgs'
     paths = os.listdir(img_dir)
     compare_dict, idx_dict = {}, {}
     for path in paths:

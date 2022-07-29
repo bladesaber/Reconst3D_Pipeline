@@ -9,6 +9,7 @@
 
 #include "types_test.h"
 #include "types_dbow.h"
+#include "types_ba.h"
 
 namespace py = pybind11;
 
@@ -20,4 +21,5 @@ PYBIND11_MODULE(slam_py, m) {
 
     declareTestTypes(m);
     declareDBOWTypes(m);
+    declareBATypes(m);
 }
