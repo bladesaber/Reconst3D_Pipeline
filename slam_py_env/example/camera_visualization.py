@@ -5,6 +5,9 @@ import numpy as np
 
 class Camera(object):
     def __init__(self, K, Twc):
+        if K.shape[1] == 4:
+            K = K[:3, :3]
+
         self.K = K
         self.Twc = Twc
 
@@ -25,15 +28,59 @@ def get_camera_wireframe(scale: float = 0.3):  # pragma: no cover
     d = 0.5 * np.array([[2, -1.5, 4]])
     C = np.zeros((1, 3))
     F = np.array([[0, 0, 3]])
-    camera_points = np.concatenate([a, up1, up2, up1, b, d, c, a, C, b, d, C, c, C, F], axis=0) * scale
+    camera_points = np.concatenate([
+        a,
+        # up1,
+        # up2,
+        # up1,
+        b,
+        d,
+        c,
+        a,
+        C,
+        b,
+        d,
+        C,
+        c,
+        C,
+        F
+    ], axis=0) * scale
     return camera_points
 
-def plot_camera(ax, camera:Camera, color: str = "blue"):
+def get_camera_axis(scale: float = 0.3):
+    orig = 0.5 * np.array([[0.0, 0.0, 0.0]])
+    x = 0.5 * np.array([[0.1, 0.0, 0.0]])
+    y = 0.5 * np.array([[0.0, 0.1, 0.0]])
+    z = 0.5 * np.array([[0.0, 0.0, 0.1]])
+    camera_points = np.concatenate([
+        orig, x,
+        orig, y,
+        orig,
+    ], axis=0) * scale
+    return camera_points
+
+def plot_camera(ax, camera: Camera, color: str = "blue"):
     cam_wires_canonical = get_camera_wireframe()
     world_points = camera.from_view_to_world(cam_wires_canonical)
     x_, y_, z_ = world_points[:, 0], world_points[:, 1], world_points[:, 2]
-    (h,) = ax.plot(x_, y_, z_, color=color, linewidth=0.3)
+    (h,) = ax.plot(x_, y_, z_, color=color, linewidth=0.8)
     return h
+
+def plot_camera_axis(ax, camera: Camera, scale=0.3):
+    point_mat = np.array([
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ]) * scale
+    world_points = camera.from_view_to_world(point_mat)
+
+    ### axis x
+    ax.plot(world_points[[0, 1], 0], world_points[[0, 1], 1], world_points[[0, 1], 2], color='r', linewidth=0.8)
+    ### axis y
+    ax.plot(world_points[[0, 2], 0], world_points[[0, 2], 1], world_points[[0, 2], 2], color='g', linewidth=0.8)
+    ### axis z
+    ax.plot(world_points[[0, 3], 0], world_points[[0, 3], 1], world_points[[0, 3], 2], color='b', linewidth=0.8)
 
 def plot_camera_scene(cameras, status: str):
     fig = plt.figure()
@@ -64,3 +111,26 @@ def plot_camera_scene(cameras, status: str):
     )
     plt.show()
     return fig
+
+if __name__ == '__main__':
+    K = np.array([
+        [1000.0, 0.,     320., 0.],
+        [0.,     1000.0, 240., 0.],
+        [0.,     0.,     1.,   0.]
+    ])
+
+    orig_camera = Camera(K=K, Twc=np.identity(4))
+
+    Twc = np.array([
+        [1., 0., 0., 0.59430675],
+        [0., 1., 0., 0.418181],
+        [0., 0., 1., 0.],
+        [0., 0., 0., 1.]
+    ])
+    other_camera = Camera(K=K, Twc=Twc)
+
+    fig = plt.figure()
+    ax = fig.gca(projection="3d")
+    plot_camera_axis(ax, orig_camera)
+    plot_camera_axis(ax, other_camera)
+    plt.show()
