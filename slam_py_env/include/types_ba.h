@@ -170,11 +170,12 @@ public:
         g2o::EdgeSE3ProjectXYZOnlyPose* edge;
         bool stat;
     };
-    EdgeReturn* addEdge(g2o::VertexSE3Expmap& pose){
+    EdgeReturn* addEdge(g2o::VertexSE3Expmap& pose, Eigen::Vector3d& point){
         g2o::EdgeSE3ProjectXYZOnlyPose* edge = new g2o::EdgeSE3ProjectXYZOnlyPose();
         edge->setVertex(0, &pose);
 
         bool stat = this->optimizer.addEdge(edge);
+        edge->Xw = point;
         EdgeReturn* res = new EdgeReturn();
         res->edge = edge;
         res->stat = stat;
@@ -294,7 +295,7 @@ void declareBATypes(py::module &m){
             .def(py::init<>())
             .def("setVerbose", &PoseOptimizerSolver::setVerbose)
             .def("addPose", &PoseOptimizerSolver::addPose)
-            .def("addEdge", &PoseOptimizerSolver::addEdge)
+            .def("addEdge", &PoseOptimizerSolver::addEdge, "pose"_a, "point"_a)
             .def("PoseSetEstimate", &PoseOptimizerSolver::PoseSetEstimate)
             .def("EdgeSetInformation", &PoseOptimizerSolver::EdgeSetInformation)
             .def("EdgeSetMeasurement", &PoseOptimizerSolver::EdgeSetMeasurement)
