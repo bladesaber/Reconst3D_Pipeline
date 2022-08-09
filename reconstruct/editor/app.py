@@ -91,10 +91,10 @@ class AppWindow(object):
         show_axel_switch.set_on_clicked(self.show_axel_switch)
         self.panel.add_child(show_axel_switch)
 
-        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=30, origin=[0, 0, 0])
-        self.widget3d.scene.add_model(
-            'axes', axes
-        )
+        # axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=30, origin=[0, 0, 0])
+        # self.widget3d.scene.add_model(
+        #     'axes', axes
+        # )
 
         self.xyz_info = gui.Label("x.y.z")
         self.panel.add_child(self.xyz_info)
@@ -132,7 +132,7 @@ class AppWindow(object):
     def _on_layout(self, layout_context):
         em = layout_context.theme.font_size
 
-        panel_width = 15 * em
+        panel_width = 20 * em
         rect = self.window.content_rect
 
         self.widget3d.frame = gui.Rect(rect.x, rect.y, rect.get_right() - panel_width, rect.height)
@@ -265,9 +265,8 @@ class AppWindow(object):
             self.geometry_combo.remove_item(name)
 
     def show_axel_switch(self, is_on):
-        # self.widget3d.scene.show_axes(is_on)
+        self.widget3d.scene.show_axes(is_on)
         # if is_on:
-        pass
 
     def _on_mouse_widget3d(self, event:gui.MouseEvent):
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(gui.KeyModifier.CTRL):
@@ -299,6 +298,9 @@ class AppWindow(object):
 
 class CustomWindow(AppWindow):
     select_points = []
+
+    register_fix_pcd_name = ''
+    register_flex_pcd_name = ''
 
     def __init__(self, args):
         super(CustomWindow, self).__init__(args=args)
@@ -373,55 +375,20 @@ class CustomWindow(AppWindow):
         self.analysis_layout.add_child(translate_layout)
 
         ### orient align with direction
-        self.widget3d.set_on_key(self._on_key_widget3d)
+        # self.widget3d.set_on_key(self._on_key_widget3d)
 
-        hlayout = gui.Horiz(self.spacing, self.margins)
-        align_btn = gui.Button("align")
-        align_btn.set_on_clicked(self.align_to_oriention)
-        hlayout.add_child(align_btn)
+        vlayout = gui.Vert(self.spacing, self.margins)
+
         move_origin_btn = gui.Button("toOrign")
         move_origin_btn.set_on_clicked(self.move_to_origin)
-        hlayout.add_child(move_origin_btn)
-        self.analysis_layout.add_child(hlayout)
+        vlayout.add_child(move_origin_btn)
 
-    def geometry_crop_on_click(self):
-        s = "Demo for manual geometry cropping \n"
-        s += "1) Press 'K' to lock screen and to switch to selection mode \n"
-        s += "2) Drag for rectangle selection, or use ctrl + left click for polygon selection \n"
-        s += "3) Press 'C' to get a selected geometry \n"
-        s += "4) Press 'S' to save the selected geometry \n"
-        s += "5) Press 'K' again to switch to freeview mode"
-        # print(s)
-        self.info_label.text = s
+        self.register_fix_combo = gui.Combobox()
+        self.register_fix_combo.set_on_selection_changed(self.register_fix_combo_change)
+        self.register_flex_combo = gui.Combobox()
+        self.register_flex_combo.set_on_selection_changed(self.register_flex_combo_change)
 
-        vis = o3d.visualization.VisualizerWithEditing()
-        vis.create_window(width=960, height=720)
-        vis.run()
-        vis.destroy_window()
-
-        # name = self.geometry_combo_name
-        # if name in self.geometry_map.keys():
-        #     visible = self.geometry_map[name]['visible']
-        #     if visible:
-        #         self.widget3d.scene.remove_geometry(name)
-        #
-        #     # vis = o3d.visualization.VisualizerWithEditing()
-        #     # vis.create_window()
-        #     # vis.add_geometry(self.geometry_map[name]['geometry'])
-        #     # vis.run()
-        #     # vis.destroy_window()
-        #     #
-        #     # del self.geometry_map[name]['geometry']
-        #     # self.geometry_map[name]['geometry'] = vis.get_cropped_geometry()
-        #
-        #     # if visible:
-        #     #     is_pcd = self.geometry_map[name]['is_pcd']
-        #     #     if is_pcd:
-        #     #         self.widget3d.scene.add_geometry(name, self.geometry_map[name]['geometry'], self.materials[AppWindow.LIT])
-        #     #     else:
-        #     #         self.widget3d.scene.add_model(name, self.geometry_map[name]['geometry'])
-        # else:
-        #     self.info_label.text = "No Geometry Find: Please select correct geometry combo"
+        self.analysis_layout.add_child(vlayout)
 
     def translate_on_click(self):
         name = self.geometry_combo_name
@@ -502,69 +469,13 @@ class CustomWindow(AppWindow):
         else:
             self.info_label.text = "No Geometry Find: Please select correct geometry combo"
 
-    def _on_key_widget3d(self, event:gui.KeyEvent):
-        if event.type == gui.KeyEvent.DOWN:
-            if event.key == ord('s'):
-                self.select_points.append(np.array([self.x_click, self.y_click, self.z_click]))
-                self.info_label.text = "[Debug]: Add point %.3f %.3f %.3f"%(self.x_click, self.y_click, self.z_click)
-
-            elif event.key == ord('d'):
-                if len(self.select_points)>0:
-                    point = self.select_points[-1]
-                    self.info_label.text = "[Debug]: Delete point %.3f %.3f %.3f" % (point[0], point[1], point[2])
-                    self.select_points = self.select_points[:-1]
-
-            elif event.key == ord('c'):
-                self.select_points.clear()
-                self.info_label.text = "[DEBUG]: Clear Points"
-
-            elif event.key == ord('1'):
-                s = '[DEBUG]: Points Num:%d \n'%len(self.select_points)
-                for idx, point in enumerate(self.select_points):
-                    s += "[Debug]: point %d: %.3f %.3f %.3f \n"%(idx, point[0], point[1], point[2])
-                self.info_label.text = s
-
-            return gui.Widget.EventCallbackResult.HANDLED
-
-        return gui.Widget.EventCallbackResult.IGNORED
-
-    def align_to_oriention(self):
-        name = self.geometry_combo_name
-        if name in self.geometry_map.keys():
-
-            if len(self.select_points)>3:
-                target_axes = np.array([
-                    [1., 0., 0.],
-                    [0., 1., 0.],
-                    [0., 0., 1.]
-                ])
-
-                plane_points = np.array(self.select_points)
-                u, sigma, v = np.linalg.svd(plane_points)
-                points_axes = v.T
-
-                target_axes_normal = target_axes - kabsch_rmsd.centroid(target_axes)
-                points_axes_normal = points_axes - kabsch_rmsd.centroid(points_axes)
-
-                rot_mat = kabsch_rmsd.kabsch(P=points_axes_normal, Q=target_axes_normal)
-
-                visible = self.geometry_map[name]['visible']
-                if visible:
-                    self.widget3d.scene.remove_geometry(name)
-
-                geometry = self.geometry_map[name]['geometry']
-                geometry = geometry.rotate(rot_mat, geometry.get_center())
-
-                is_pcd = self.geometry_map[name]['is_pcd']
-                if is_pcd:
-                    self.widget3d.scene.add_geometry(name, geometry, self.materials[AppWindow.LIT])
-                else:
-                    self.widget3d.scene.add_model(name, geometry)
-
-            else:
-                self.info_label.text = "Select Points Are Not Enough"
-        else:
-            self.info_label.text = "No Geometry Find: Please select correct geometry combo"
+    # def _on_key_widget3d(self, event:gui.KeyEvent):
+    #     if event.type == gui.KeyEvent.DOWN:
+    #         if event.key == ord('s'):
+    #             pass
+    #         return gui.Widget.EventCallbackResult.HANDLED
+    #
+    #     return gui.Widget.EventCallbackResult.IGNORED
 
     def move_to_origin(self):
         name = self.geometry_combo_name
@@ -587,6 +498,137 @@ class CustomWindow(AppWindow):
 
         else:
             self.info_label.text = "No Geometry Find: Please select correct geometry combo"
+
+    def register_fix_combo_change(self, val, idx):
+        self.register_fix_pcd_name = val
+
+    def register_flex_combo_change(self, val, idx):
+        self.register_flex_pcd_name = val
+
+    def register_pcd(self):
+        fix_name = self.register_fix_pcd_name
+        flex_name = self.register_flex_pcd_name
+
+        if (fix_name not in self.geometry_map.keys()) or (flex_name not in self.geometry_map.keys()):
+            self.info_label.text = "No Geometry Find: Please select correct geometry combo"
+            return
+
+        if self.geometry_map[fix_name]['visible']:
+            self.widget3d.scene.remove_geometry(fix_name)
+        if self.geometry_map[flex_name]['visible']:
+            self.widget3d.scene.remove_geometry(flex_name)
+
+        fix_geometry = self.geometry_map[fix_name]['geometry']
+        flex_geometry = self.geometry_map[flex_name]['geometry']
+
+    def multiscale_icp(
+            self,
+            source, target,
+            voxel_sizes, max_iters,
+            icp_method='point_to_plane',
+            init_transformation=np.identity(4),
+    ):
+        current_transformation = init_transformation
+        run_times = len(max_iters)
+
+        for idx in range(run_times):  # multi-scale approach
+            max_iter = max_iters[idx]
+            voxel_size = voxel_sizes[idx]
+            distance_threshold = voxel_size * 1.4
+
+            source_down = source.voxel_down_sample(voxel_size)
+            target_down = target.voxel_down_sample(voxel_size)
+
+            result_icp = self.icp(
+                source=source_down, target=target_down,
+                max_iter=max_iter,
+                distance_threshold=distance_threshold,
+                icp_method=icp_method,
+                init_transformation=current_transformation,
+                radius=voxel_size * 2.0,
+                max_correspondence_distance=voxel_size * 1.4
+            )
+
+            current_transformation = result_icp.transformation
+            if idx == run_times - 1:
+                information_matrix = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+                    source_down, target_down, voxel_size * 1.4,
+                    result_icp.transformation
+                )
+
+        # print(result_icp)
+        # self.draw_registration_result_original_color(source, target, result_icp.transformation)
+
+        return (result_icp.transformation, information_matrix)
+
+    def icp(self,
+            source, target,
+            max_iter, distance_threshold,
+            icp_method='color',
+            init_transformation=np.identity(4),
+            radius=0.02,
+            max_correspondence_distance=0.01,
+            ):
+        if icp_method == "point_to_point":
+            result_icp = o3d.pipelines.registration.registration_icp(
+                source, target,
+                distance_threshold,
+                init_transformation,
+                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter))
+
+        else:
+            source.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=30)
+            )
+            target.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=30)
+            )
+            if icp_method == "point_to_plane":
+                result_icp = o3d.pipelines.registration.registration_icp(
+                    source, target,
+                    distance_threshold,
+                    init_transformation,
+                    o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                    o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter)
+                )
+
+            if icp_method == "color":
+                # Colored ICP is sensitive to threshold.
+                # Fallback to preset distance threshold that works better.
+                # TODO: make it adjustable in the upgraded system.
+                result_icp = o3d.pipelines.registration.registration_colored_icp(
+                    source, target,
+                    max_correspondence_distance,
+                    init_transformation,
+                    o3d.pipelines.registration.TransformationEstimationForColoredICP(),
+                    o3d.pipelines.registration.ICPConvergenceCriteria(
+                        relative_fitness=1e-6,
+                        relative_rmse=1e-6,
+                        max_iteration=max_iter)
+                )
+
+            if icp_method == "generalized":
+                result_icp = o3d.pipelines.registration.registration_generalized_icp(
+                    source, target,
+                    distance_threshold,
+                    init_transformation,
+                    o3d.pipelines.registration.
+                        TransformationEstimationForGeneralizedICP(),
+                    o3d.pipelines.registration.ICPConvergenceCriteria(
+                        relative_fitness=1e-6,
+                        relative_rmse=1e-6,
+                        max_iteration=max_iter)
+                )
+
+        ### debug
+        # information_matrix = open3d.pipelines.registration.get_information_matrix_from_point_clouds(
+        #     source, target, 0.01,
+        #     result_icp.transformation
+        # )
+        # print(information_matrix)
+
+        return result_icp
 
 def main():
     args = parse_args()
