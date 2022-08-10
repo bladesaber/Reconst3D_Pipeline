@@ -119,6 +119,13 @@ def plane_Align_Axes(
         return rot_mat
 
 ### -------------------------------------------------------------
+def create_map(height, width):
+    x = np.tile(np.arange(0, width, 1).reshape((1, -1)), (height, 1))
+    y = np.tile(np.arange(0, height, 1).reshape((-1, 1)), (1, width))
+    map = np.concatenate((x[..., np.newaxis], y[..., np.newaxis]), axis=-1)
+    map = map.reshape((-1, 2))
+    return map
+
 def render(vis):
     depth_buf = vis.capture_depth_float_buffer()
     depth_img = np.asarray(depth_buf)
@@ -132,21 +139,59 @@ def render(vis):
     intrinsic = intrinsic.intrinsic_matrix
     extrinsic = camera.extrinsic
 
-    print('[DEBUG]: intrinsic: \n')
-    print(intrinsic)
-    print('[DEBUG]: extrinsic: \n')
-    print(extrinsic)
+    # print('[DEBUG]: intrinsic: \n')
+    # print(intrinsic)
+    # print('[DEBUG]: extrinsic: \n')
+    # print(extrinsic)
 
-    plt.figure('depth')
-    plt.imshow(depth_img)
-    plt.figure('rgb')
-    plt.imshow(rgb_img)
-    plt.show()
+    # ### -----------------------------------------------------------
+    # ### ------ debug
+    # map = create_map(height=rgb_img.shape[0], width=rgb_img.shape[1])
+    # depth_np = depth_img.reshape(-1)
+    # select_bool = depth_np>10
+    # uv = map[select_bool]
+    # depth_np = depth_np[select_bool]
+    # depth_np = depth_np.reshape((-1, 1))
+    #
+    # uvs = np.concatenate([uv * depth_np, depth_np], axis=1)
+    # Kv = np.linalg.inv(intrinsic)
+    # pcd_camera = (Kv.dot(uvs.T)).T
+    # pcd_camera_t = np.concatenate([pcd_camera, np.ones((pcd_camera.shape[0], 1))], axis=1)
+    # 
+    # extrinsic = np.linalg.inv(extrinsic)
+    # pcd_world_t = (extrinsic.dot(pcd_camera_t.T)).T
+    #
+    # pcd_world = pcd_world_t[:, :3]
+    # idx = np.arange(0, pcd_world.shape[0], 1)
+    # select_idx = np.random.choice(idx, size=10000)
+    # pcd_world = pcd_world[select_idx]
+    #
+    # pcd_orig = np.asarray(pcd.points)
+    # # pcd_orig = np.asarray(mesh.vertices)
+    # idx = np.arange(0, pcd_orig.shape[0], 1)
+    # select_idx = np.random.choice(idx, size=10000)
+    # pcd_orig = pcd_orig[select_idx]
+    #
+    # fig = plt.figure()
+    # ax = fig.gca(projection="3d")
+    # ax.set_xlim3d([-120, 120])
+    # ax.set_ylim3d([-120, 120])
+    # ax.set_zlim3d([-120, 120])
+    # ax.scatter(pcd_world[:, 0], pcd_world[:, 1], pcd_world[:, 2], s=0.01, c='r')
+    # ax.scatter(pcd_orig[:, 0], pcd_orig[:, 1], pcd_orig[:, 2], s=0.01, c='b')
+    # plt.show()
+    # ### ------------------------------------------------------
+
+    # plt.figure('depth')
+    # plt.imshow(depth_img)
+    # plt.figure('rgb')
+    # plt.imshow(rgb_img)
+    # plt.show()
 
 def apriltag_Align_Axes(
         pcd: o3d.geometry.PointCloud,
         height=720, width=960,
-        to_mesh=False, voxels_size=-1
+        to_mesh=False, voxels_size=-1.0
 ):
     s = 'Help&Info \n'
     s += '1) R: Reset view point. \n'
@@ -177,9 +222,13 @@ def apriltag_Align_Axes(
     vis.destroy_window()
 
 if __name__ == '__main__':
-    pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_3.ply')
-    pcd = plane_Align_Axes(pcd=pcd, debug=False, coodr_size=30, retur_pcd=True)
-    o3d.io.write_point_cloud('/home/psdz/HDD/quan/3d_model/test.ply', pcd)
+    # pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_3.ply')
+    # pcd = plane_Align_Axes(pcd=pcd, debug=False, coodr_size=30, retur_pcd=True)
+    # o3d.io.write_point_cloud('/home/psdz/HDD/quan/3d_model/test.ply', pcd)
 
-    # pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
-    # apriltag_Align_Axes(pcd, to_mesh=False)
+    pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
+    pcd = pcd.voxel_down_sample(2.0)
+    apriltag_Align_Axes(pcd, to_mesh=False)
+
+    # mesh = o3d.io.read_triangle_mesh('/home/psdz/HDD/quan/3d_model/1.ply')
+    # apriltag_Align_Axes(mesh, to_mesh=False)
