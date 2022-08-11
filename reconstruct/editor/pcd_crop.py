@@ -7,8 +7,10 @@ def parse_args():
     parser.add_argument("--height", type=int, help="", default=720)
     parser.add_argument("--plys", nargs='+', help="",
                         default=[
-                            '/home/psdz/HDD/quan/3d_model/model1/1_fuse.ply',
-                            '/home/psdz/HDD/quan/3d_model/model1/3_fuse.ply'
+                            # '/home/psdz/Desktop/model/model1_fuse.ply',
+                            # '/home/psdz/Desktop/model/model2_fuse.ply',
+                            # '/home/psdz/Desktop/model/model4_fuse.ply'
+                            '/home/psdz/Desktop/model/cropped_1.ply'
                         ])
     args = parser.parse_args()
     return args

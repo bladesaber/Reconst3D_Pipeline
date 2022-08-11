@@ -1,53 +1,62 @@
 import numpy as np
 import open3d as o3d
-import cv2
+import matplotlib.pyplot as plt
 
-fix: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
-crop: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/2_fuse.ply')
+def display_inlier_outlier(cloud, ind):
+    inlier_cloud = cloud.select_by_index(ind)
+    outlier_cloud = cloud.select_by_index(ind, invert=True)
 
-# orient_box = crop.get_oriented_bounding_box()
-# orient_box.color = (1, 0, 0)
-# axis_box = crop.get_axis_aligned_bounding_box()
-# axis_box.color = (0, 1, 0)
-#
-# o3d.visualization.draw_geometries([
-#     crop,
-#     orient_box,
-#     axis_box
-# ])
+    print("Showing outliers (red) and inliers (gray): ")
+    outlier_cloud.paint_uniform_color([1, 0, 0])
+    inlier_cloud.paint_uniform_color([0.8, 0.8, 0.8])
+    o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud])
 
-fix = fix.voxel_down_sample(2.0)
-crop = crop.voxel_down_sample(2.0)
+pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/tempary/model/fuse_all.ply')
 
-fix = fix.translate(-fix.get_center())
-crop = crop.translate(-crop.get_center())
+pcd = pcd.remove_non_finite_points()
 
-fix.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=5.0, max_nn=30))
-crop.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=5.0, max_nn=30))
-fix_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-    fix, o3d.geometry.KDTreeSearchParamHybrid(radius=5.0, max_nn=100)
-)
-crop_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-    crop, o3d.geometry.KDTreeSearchParamHybrid(radius=5.0, max_nn=100)
-)
+pcd = pcd.voxel_down_sample(2.0)
+# cl, index = pcd.remove_radius_outlier(nb_points=5, radius=1.5)
+# cl, index = pcd.remove_statistical_outlier(nb_neighbors=3, std_ratio=0.001)
 
-result_icp = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
-    crop, fix, crop_fpfh, fix_fpfh,
-    o3d.pipelines.registration.FastGlobalRegistrationOption(
-        maximum_correspondence_distance=30.0
+# display_inlier_outlier(pcd, index)
+# o3d.visualization.draw_geometries([cl])
+
+# pcd = cl
+
+### -----------------------------------------------------------------------
+tetra_mesh, pt_map = o3d.geometry.TetraMesh.create_from_point_cloud(pcd)
+for alpha in np.logspace(np.log10(30.0), np.log10(2.0), num=4):
+    print(f"alpha={alpha:.3f}")
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+        pcd, alpha, tetra_mesh, pt_map
     )
-)
-crop = crop.transform(result_icp.transformation)
+    mesh.compute_vertex_normals()
+    o3d.visualization.draw_geometries([mesh], mesh_show_back_face=True)
 
-# o3d.visualization.draw_geometries([fix, crop])
+# tetra_mesh, pt_map = o3d.geometry.TetraMesh.create_from_point_cloud(pcd)
+# mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+#     pcd, 10.0,
+#     # tetra_mesh, pt_map
+# )
+# mesh.compute_vertex_normals()
+# o3d.visualization.draw_geometries([mesh], mesh_show_back_face=True)
+# mesh.compute_triangle_normals()
+# o3d.io.write_triangle_mesh('/home/quan/Desktop/tempary/model/mesh2.stl', mesh)
 
-orient_box = crop.get_oriented_bounding_box()
-inlier_indx = orient_box.get_point_indices_within_bounding_box(fix.points)
+# pcd.estimate_normals()
+# with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
+#     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+#         pcd, depth=9
+#     )
+# o3d.visualization.draw_geometries([mesh])
 
-### crop outside
-# fix = fix.crop(orient_box)
-
-### crop inside
-fix = fix.select_by_index(inlier_indx, invert=True)
-
-o3d.visualization.draw_geometries([fix])
+# densities = np.asarray(densities)
+# density_colors = plt.get_cmap('plasma')((densities - densities.min()) / (densities.max() - densities.min()))
+# density_colors = density_colors[:, :3]
+# density_mesh = o3d.geometry.TriangleMesh()
+# density_mesh.vertices = mesh.vertices
+# density_mesh.triangles = mesh.triangles
+# density_mesh.triangle_normals = mesh.triangle_normals
+# density_mesh.vertex_colors = o3d.utility.Vector3dVector(density_colors)
+# o3d.visualization.draw_geometries([density_mesh])

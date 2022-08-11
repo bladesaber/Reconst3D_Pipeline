@@ -7,6 +7,7 @@ import apriltag
 import cv2
 import argparse
 import os
+from functools import partial
 
 def plane_Align_Axes(
         pcd: o3d.geometry.PointCloud,
@@ -129,12 +130,11 @@ def parse_args():
     parser.add_argument("--height", type=int, help="", default=720)
     parser.add_argument("--plys", nargs='+', help="",
                         default=[
-                            '/home/psdz/HDD/quan/3d_model/model1/1_fuse.ply',
-                            '/home/psdz/HDD/quan/3d_model/model1/3_fuse.ply'
+                            '/home/psdz/Desktop/model/cropped_3.ply',
                         ])
     parser.add_argument("--output_dir", help="",
-                        default='')
-    parser.add_argument('--apriltag_size', type=float, default=15.0)
+                        default='/home/psdz/Desktop/model/output')
+    parser.add_argument('--apriltag_size', type=float, default=17.0)
     args = parser.parse_args()
     return args
 
@@ -157,7 +157,7 @@ def transform(rgb_img, depth_img, intrinsic, extrinsic, t_s=15):
         T_from_april_tag = at_detector.detection_pose(
             tags[0],
             [intrinsic[0][0], intrinsic[1][1], intrinsic[0][2], intrinsic[1][2]],
-            tag_size=0.03
+            tag_size=t_s
         )
 
         det_result = np.array([[i for i in j.corners] for j in tags])
@@ -181,7 +181,6 @@ def transform(rgb_img, depth_img, intrinsic, extrinsic, t_s=15):
 
         target_normal = target_point - np.mean(source_point, axis=0)
         source_normal = source_point - np.mean(target_point, axis=0)
-        import register as kabsch_rmsd
         rot_mat = kabsch_rmsd.kabsch(P=target_normal, Q=source_normal)
         vec = np.mean(target_point, axis=0) - (rot_mat.dot(np.mean(source_point, axis=0).T)).T
         return rot_mat, vec
@@ -190,8 +189,8 @@ def transform(rgb_img, depth_img, intrinsic, extrinsic, t_s=15):
 
         return np.eye(3, 3), np.zeros(3)
 
-def render(vis):
-    global geometry, args
+def render(vis:o3d.visualization.VisualizerWithKeyCallback):
+    global args, geometry
 
     depth_buf = vis.capture_depth_float_buffer()
     depth_img = np.asarray(depth_buf)
@@ -258,19 +257,19 @@ def render(vis):
         np.asarray(rgb_img * 255, dtype=np.uint8), depth_img, intrinsic, extrinsic,
         t_s=args.apriltag_size
     )
-    vis.remove_geometry(geometry)
+
     try:
         new_points = np.asarray(geometry.points)
         new_points = (R @ new_points.T).T
         new_points = new_points + t
         geometry.points = o3d.utility.Vector3dVector(new_points)
-        vis.add_geometry(geometry)
     except:
         new_points = np.asarray(geometry.vertices)
         new_points = (R @ new_points.T).T
         new_points = new_points + t
         geometry.vertices = o3d.utility.Vector3dVector(new_points)
-        vis.add_geometry(geometry)
+
+    vis.update_geometry(geometry)
 
     # plt.figure('depth')
     # plt.imshow(depth_img)
@@ -280,10 +279,15 @@ def render(vis):
 
 def save(vis):
     global geometry, args, geometry_name
-
     file_name = os.path.basename(geometry_name)
     save_path = os.path.join(args.output_dir, file_name)
     o3d.io.write_point_cloud(save_path, geometry)
+
+def hide_axis(vis:o3d.visualization.VisualizerWithKeyCallback, axis_mesh):
+    vis.remove_geometry(axis_mesh)
+
+def show_axis(vis:o3d.visualization.VisualizerWithKeyCallback, axis_mesh):
+    vis.add_geometry(axis_mesh)
 
 def apriltag_Align_Axes(
         pcd: o3d.geometry.PointCloud,
@@ -302,9 +306,9 @@ def apriltag_Align_Axes(
     if voxels_size>0:
         pcd = pcd.voxel_down_sample(voxels_size)
 
-    if to_mesh:
-        pcd, double_v = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd=pcd)
-        # o3d.visualization.draw_geometries([pcd])
+    # if to_mesh:
+    #     pcd, double_v = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd=pcd)
+    #     # o3d.visualization.draw_geometries([pcd])
 
     vis = o3d.visualization.VisualizerWithKeyCallback()
     vis.create_window(height=height, width=width)
@@ -312,15 +316,25 @@ def apriltag_Align_Axes(
     opt = vis.get_render_option()
     opt.background_color = np.asarray([0, 0, 0])
 
+    pcd = pcd.translate(-pcd.get_center())
     vis.add_geometry(pcd)
+    mesh_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(
+        size=50, origin=pcd.get_center()
+    )
+    vis.add_geometry(mesh_axis)
+
     vis.register_key_callback(ord(','), render)
     vis.register_key_callback(ord('.'), save)
+    vis.register_key_callback(ord('1'), partial(hide_axis, axis_mesh=mesh_axis))
+    vis.register_key_callback(ord('2'), partial(show_axis, axis_mesh=mesh_axis))
 
     vis.run()
 
     vis.destroy_window()
 
 if __name__ == '__main__':
+    args = parse_args()
+
     # pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_3.ply')
     # pcd = plane_Align_Axes(pcd=pcd, debug=False, coodr_size=30, retur_pcd=True)
     # o3d.io.write_point_cloud('/home/psdz/HDD/quan/3d_model/test.ply', pcd)
@@ -332,7 +346,6 @@ if __name__ == '__main__':
     # mesh = o3d.io.read_triangle_mesh('/home/psdz/HDD/quan/3d_model/1.ply')
     # apriltag_Align_Axes(mesh, to_mesh=False)
 
-    args = parse_args()
     for ply in args.plys:
         geometry_name = ply
         geometry = o3d.io.read_point_cloud(ply)
@@ -340,3 +353,4 @@ if __name__ == '__main__':
             geometry, to_mesh=False,
             width=args.width, height=args.height
         )
+
