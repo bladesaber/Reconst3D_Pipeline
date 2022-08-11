@@ -455,6 +455,25 @@ class CustomWindow(AppWindow):
         translate_layout.add_stretch()
 
         hlayout = gui.Horiz(self.spacing, self.margins)
+        sub_hlayout = gui.Horiz(self.spacing, self.margins)
+        sub_hlayout.add_child(gui.Label("Neigobour:"))
+        self.clean_neigobour = gui.NumberEdit(gui.NumberEdit.INT)
+        self.clean_neigobour.set_preferred_width(100.0)
+        sub_hlayout.add_child(self.clean_neigobour)
+        hlayout.add_child(sub_hlayout)
+
+        sub_hlayout = gui.Horiz(self.spacing, self.margins)
+        sub_hlayout.add_child(gui.Label("Clean Ratio:"))
+        self.clean_ratio = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.clean_ratio.set_preferred_width(40.0)
+        self.clean_ratio.decimal_precision = 1
+        sub_hlayout.add_child(self.clean_ratio)
+        hlayout.add_child(sub_hlayout)
+
+        translate_layout.add_child(hlayout)
+        translate_layout.add_stretch()
+
+        hlayout = gui.Horiz(self.spacing, self.margins)
         translate_btn = gui.Button("Translate")
         translate_btn.set_on_clicked(self.translate_on_click)
         hlayout.add_child(translate_btn)
@@ -464,6 +483,9 @@ class CustomWindow(AppWindow):
         voxel_btn = gui.Button("Voxel")
         voxel_btn.set_on_clicked(self.voxel_on_click)
         hlayout.add_child(voxel_btn)
+        clean_outlier_btn = gui.Button("Clean")
+        clean_outlier_btn.set_on_clicked(self.clean_on_click)
+        hlayout.add_child(clean_outlier_btn)
 
         translate_layout.add_child(hlayout)
         self.analysis_layout.add_child(translate_layout)
@@ -884,6 +906,59 @@ class CustomWindow(AppWindow):
         checkbox.checked = True
         checkbox.set_on_checked(partial(self.geometry_on_click, name=new_name))
         self.geometry_layout.add_child(checkbox)
+
+    def crop_between_geometry_bounding_box(
+            self,
+            fix_pcd: o3d.geometry.PointCloud,
+            crop_pcd: o3d.geometry.PointCloud
+    ):
+        orient_box = crop_pcd.get_oriented_bounding_box()
+
+        # ### method 1
+        # ### retain the point cloud in the bounding box
+        # fix_pcd = fix_pcd.crop(orient_box)
+
+        ### method 2
+        inlier_indx = orient_box.get_point_indices_within_bounding_box(fix_pcd.points)
+        fix_pcd = fix_pcd.select_by_index(inlier_indx, invert=True)
+
+        # ### method 3
+        # dists = fix_pcd.compute_point_cloud_distance(crop_pcd)
+        # dists = np.asarray(dists)
+        # select_index = np.where(dists>1.0)[0]
+        # fix_pcd = fix_pcd.select_by_index(select_index)
+
+        return fix_pcd
+
+    def clean_on_click(self):
+        name = self.geometry_combo_name
+        if name in self.geometry_map.keys():
+            nn_neigobour = self.clean_neigobour.int_value
+            clean_ratio = self.clean_ratio.double_value
+
+            visible = self.geometry_map[name]['visible']
+            if visible:
+                self.widget3d.scene.remove_geometry(name)
+
+            geometry = self.geometry_map[name]['geometry']
+            geometry = self.clean_outlier(geometry, nn_neigobour, clean_ratio)
+
+            is_pcd = self.geometry_map[name]['is_pcd']
+            if is_pcd:
+                self.widget3d.scene.add_geometry(name, geometry, self.materials[AppWindow.LIT])
+            else:
+                self.widget3d.scene.add_model(name, geometry)
+
+        else:
+            self.info_label.text = "No Geometry Find: Please select correct geometry combo"
+
+    def clean_outlier(self, pcd: o3d.geometry.PointCloud, nb_neighbors=10, std_ratio=1.0):
+        pcd = pcd.remove_non_finite_points()
+        pcd = pcd.remove_duplicated_points()
+
+        if nb_neighbors>0 and std_ratio>0.0:
+            pcd, indx = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+        return pcd
 
 def main():
     args = parse_args()

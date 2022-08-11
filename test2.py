@@ -1,5 +1,6 @@
 import numpy as np
 import open3d as o3d
+import cv2
 
 fix: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
 crop: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/2_fuse.ply')

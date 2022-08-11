@@ -530,6 +530,35 @@ https://github.com/charnley/rmsd
     if args.quater:
         print("Quater RMSD: {0}".format(quaternion_rmsd(P, Q)))
 
+def test():
+    from scipy.spatial import transform
+    def eulerAngles_to_rotationMat_scipy(theta, degress):
+        r = transform.Rotation.from_euler(seq='xyz', angles=theta, degrees=degress)
+        return r.as_matrix()
+
+    pcd = np.random.random((100, 3))
+    rot_mat = eulerAngles_to_rotationMat_scipy([5, 3, 2], degress=True)
+    pcd_noise = (rot_mat.dot(pcd.T)).T
+
+    pcd_cneter = np.mean(pcd, axis=0)
+    pcd_noise_center = np.mean(pcd_noise, axis=0)
+
+    pcd_normal = pcd - pcd_cneter
+    pcd_noise_normal = pcd_noise - pcd_noise_center
+
+    rot = kabsch_rmsd.kabsch(pcd_normal, pcd_noise_normal)
+
+    new_pcd = (rot.dot(pcd_noise_normal.T)).T
+
+    fig = plt.figure()
+    ax = fig.gca(projection="3d")
+    ax.set_xlim3d([-1.0, 1.0])
+    ax.set_ylim3d([-1.0, 1.0])
+    ax.set_zlim3d([-1.0, 1.0])
+    ax.scatter(pcd_normal[:, 0], pcd_normal[:, 1], pcd_normal[:, 2], c='r')
+    ax.scatter(pcd_noise_normal[:, 0], pcd_noise_normal[:, 1], pcd_noise_normal[:, 2], c='g')
+    ax.scatter(new_pcd[:, 0], new_pcd[:, 1], new_pcd[:, 2], c='b')
+    plt.show()
 
 if __name__ == "__main__":
     # main()

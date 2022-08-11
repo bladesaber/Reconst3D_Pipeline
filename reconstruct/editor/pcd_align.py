@@ -3,6 +3,10 @@ import numpy as np
 import reconstruct.utils.rmsd_kabsch as kabsch_rmsd
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import apriltag
+import cv2
+import argparse
+import os
 
 def plane_Align_Axes(
         pcd: o3d.geometry.PointCloud,
@@ -119,6 +123,21 @@ def plane_Align_Axes(
         return rot_mat
 
 ### -------------------------------------------------------------
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--width", type=int, help="",default=960)
+    parser.add_argument("--height", type=int, help="", default=720)
+    parser.add_argument("--plys", nargs='+', help="",
+                        default=[
+                            '/home/psdz/HDD/quan/3d_model/model1/1_fuse.ply',
+                            '/home/psdz/HDD/quan/3d_model/model1/3_fuse.ply'
+                        ])
+    parser.add_argument("--output_dir", help="",
+                        default='')
+    parser.add_argument('--apriltag_size', type=float, default=15.0)
+    args = parser.parse_args()
+    return args
+
 def create_map(height, width):
     x = np.tile(np.arange(0, width, 1).reshape((1, -1)), (height, 1))
     y = np.tile(np.arange(0, height, 1).reshape((-1, 1)), (1, width))
@@ -126,7 +145,54 @@ def create_map(height, width):
     map = map.reshape((-1, 2))
     return map
 
+def transform(rgb_img, depth_img, intrinsic, extrinsic, t_s=15):
+    at_detector = apriltag.Detector(apriltag.DetectorOptions(families='tag36h11 tag25h9'))
+
+    gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+    tags = at_detector.detect(gray)
+
+    # only get the first detection in tags
+    if tags:
+        # T april_tag to camera
+        T_from_april_tag = at_detector.detection_pose(
+            tags[0],
+            [intrinsic[0][0], intrinsic[1][1], intrinsic[0][2], intrinsic[1][2]],
+            tag_size=0.03
+        )
+
+        det_result = np.array([[i for i in j.corners] for j in tags])
+        points_with_depth = []
+        for point in det_result[0]:
+            point_depth = depth_img[int(point[1]), int(point[0])]
+            points_with_depth.append([point[0] * point_depth, point[1] * point_depth, point_depth])
+        points_with_depth = np.array(points_with_depth)
+
+        point_C = (np.linalg.inv(intrinsic).dot(points_with_depth.T)).T
+        point_C_t = np.concatenate([point_C, np.ones((point_C.shape[0], 1))], axis=1)
+
+        source_point = ((np.linalg.inv(extrinsic).dot(point_C_t.T)).T)[:, :3]
+
+        target_point = np.array([
+            [-t_s, t_s, 0],
+            [t_s, t_s, 0],
+            [t_s, -t_s, 0],
+            [-t_s, -t_s, 0]
+        ])
+
+        target_normal = target_point - np.mean(source_point, axis=0)
+        source_normal = source_point - np.mean(target_point, axis=0)
+        import register as kabsch_rmsd
+        rot_mat = kabsch_rmsd.kabsch(P=target_normal, Q=source_normal)
+        vec = np.mean(target_point, axis=0) - (rot_mat.dot(np.mean(source_point, axis=0).T)).T
+        return rot_mat, vec
+    else:
+        print(f"\n\t\033[0;31m No April tag detected\033[0m")
+
+        return np.eye(3, 3), np.zeros(3)
+
 def render(vis):
+    global geometry, args
+
     depth_buf = vis.capture_depth_float_buffer()
     depth_img = np.asarray(depth_buf)
 
@@ -157,36 +223,67 @@ def render(vis):
     # Kv = np.linalg.inv(intrinsic)
     # pcd_camera = (Kv.dot(uvs.T)).T
     # pcd_camera_t = np.concatenate([pcd_camera, np.ones((pcd_camera.shape[0], 1))], axis=1)
-    # 
+    #
     # extrinsic = np.linalg.inv(extrinsic)
     # pcd_world_t = (extrinsic.dot(pcd_camera_t.T)).T
     #
     # pcd_world = pcd_world_t[:, :3]
-    # idx = np.arange(0, pcd_world.shape[0], 1)
-    # select_idx = np.random.choice(idx, size=10000)
-    # pcd_world = pcd_world[select_idx]
     #
-    # pcd_orig = np.asarray(pcd.points)
-    # # pcd_orig = np.asarray(mesh.vertices)
-    # idx = np.arange(0, pcd_orig.shape[0], 1)
-    # select_idx = np.random.choice(idx, size=10000)
-    # pcd_orig = pcd_orig[select_idx]
+    # a = o3d.geometry.PointCloud()
+    # a.points = o3d.utility.Vector3dVector(pcd_world)
+    # a.colors = o3d.utility.Vector3dVector(np.tile(np.array([[255, 0, 0]]), [pcd_world.shape[0], 1]))
+    # vis.add_geometry(a)
     #
-    # fig = plt.figure()
-    # ax = fig.gca(projection="3d")
-    # ax.set_xlim3d([-120, 120])
-    # ax.set_ylim3d([-120, 120])
-    # ax.set_zlim3d([-120, 120])
-    # ax.scatter(pcd_world[:, 0], pcd_world[:, 1], pcd_world[:, 2], s=0.01, c='r')
-    # ax.scatter(pcd_orig[:, 0], pcd_orig[:, 1], pcd_orig[:, 2], s=0.01, c='b')
-    # plt.show()
+    # # idx = np.arange(0, pcd_world.shape[0], 1)
+    # # select_idx = np.random.choice(idx, size=10000)
+    # # pcd_world = pcd_world[select_idx]
+    # #
+    # # pcd_orig = np.asarray(pcd.points)
+    # # # pcd_orig = np.asarray(mesh.vertices)
+    # # idx = np.arange(0, pcd_orig.shape[0], 1)
+    # # select_idx = np.random.choice(idx, size=10000)
+    # # pcd_orig = pcd_orig[select_idx]
+    #
+    # # fig = plt.figure()
+    # # ax = fig.gca(projection="3d")
+    # # ax.set_xlim3d([-120, 120])
+    # # ax.set_ylim3d([-120, 120])
+    # # ax.set_zlim3d([-120, 120])
+    # # ax.scatter(pcd_world[:, 0], pcd_world[:, 1], pcd_world[:, 2], s=0.01, c='r')
+    # # ax.scatter(pcd_orig[:, 0], pcd_orig[:, 1], pcd_orig[:, 2], s=0.01, c='b')
+    # # plt.show()
     # ### ------------------------------------------------------
+
+    R, t = transform(
+        np.asarray(rgb_img * 255, dtype=np.uint8), depth_img, intrinsic, extrinsic,
+        t_s=args.apriltag_size
+    )
+    vis.remove_geometry(geometry)
+    try:
+        new_points = np.asarray(geometry.points)
+        new_points = (R @ new_points.T).T
+        new_points = new_points + t
+        geometry.points = o3d.utility.Vector3dVector(new_points)
+        vis.add_geometry(geometry)
+    except:
+        new_points = np.asarray(geometry.vertices)
+        new_points = (R @ new_points.T).T
+        new_points = new_points + t
+        geometry.vertices = o3d.utility.Vector3dVector(new_points)
+        vis.add_geometry(geometry)
 
     # plt.figure('depth')
     # plt.imshow(depth_img)
     # plt.figure('rgb')
     # plt.imshow(rgb_img)
     # plt.show()
+
+def save(vis):
+    global geometry, args, geometry_name
+
+    file_name = os.path.basename(geometry_name)
+    save_path = os.path.join(args.output_dir, file_name)
+    o3d.io.write_point_cloud(save_path, geometry)
 
 def apriltag_Align_Axes(
         pcd: o3d.geometry.PointCloud,
@@ -200,6 +297,7 @@ def apriltag_Align_Axes(
     s += '4) 1: Render point color. \n'
     s += '5) 9: normal as color.\n'
     s += '6) ,: apriltag process \n'
+    s += '7) .: save \n'
 
     if voxels_size>0:
         pcd = pcd.voxel_down_sample(voxels_size)
@@ -216,6 +314,7 @@ def apriltag_Align_Axes(
 
     vis.add_geometry(pcd)
     vis.register_key_callback(ord(','), render)
+    vis.register_key_callback(ord('.'), save)
 
     vis.run()
 
@@ -226,9 +325,18 @@ if __name__ == '__main__':
     # pcd = plane_Align_Axes(pcd=pcd, debug=False, coodr_size=30, retur_pcd=True)
     # o3d.io.write_point_cloud('/home/psdz/HDD/quan/3d_model/test.ply', pcd)
 
-    pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
-    pcd = pcd.voxel_down_sample(2.0)
-    apriltag_Align_Axes(pcd, to_mesh=False)
+    # pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/model1/cropped_1.ply')
+    # pcd = pcd.voxel_down_sample(2.0)
+    # apriltag_Align_Axes(pcd, to_mesh=False)
 
     # mesh = o3d.io.read_triangle_mesh('/home/psdz/HDD/quan/3d_model/1.ply')
     # apriltag_Align_Axes(mesh, to_mesh=False)
+
+    args = parse_args()
+    for ply in args.plys:
+        geometry_name = ply
+        geometry = o3d.io.read_point_cloud(ply)
+        apriltag_Align_Axes(
+            geometry, to_mesh=False,
+            width=args.width, height=args.height
+        )
