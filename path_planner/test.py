@@ -1,56 +1,63 @@
 import open3d as o3d
 import numpy as np
 import matplotlib.pyplot as plt
+from copy import deepcopy
 
 from path_planner.utils import create_fake_bowl_pcd
-from path_planner.utils import pandas_voxel
+from path_planner.utils import expand_standard_voxel, pandas_voxel
+from path_planner.utils import trex_windows, cone_windows
+from path_planner.utils import remove_inner_pcd, level_color_pcd
 
 np.set_printoptions(suppress=True)
 
-def main():
-    bowl_pcd, bowl_color = create_fake_bowl_pcd(x_finish=-9.0, resoltuion=0.1)
-    bowl_pcd, bowl_color = pandas_voxel(bowl_pcd, bowl_color, resolution=0.5)
+def pcd_standard():
+    resolution = 5.0
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/fuse_all.ply')
+    pcd = pcd.voxel_down_sample(resolution / 2.0)
 
-    print('[DEBUG]: Points Count: ', bowl_pcd.shape)
-    print('[DEBUG]: Color Count: ', bowl_color.shape)
+    pcd_np = np.asarray(pcd.points)
+    print('[DEBUG]: Pcd Shape: ', pcd_np.shape)
+    pcd_np = expand_standard_voxel(pcd_np, resolution=resolution, windows=cone_windows)
+    pcd_np_color = np.tile(np.array([[0.0, 0.0, 1.0]]), (pcd_np.shape[0], 1))
+    print('[DEBUG]: Expand Pcd Shape: ', pcd_np.shape)
 
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(bowl_pcd)
-    pcd.colors = o3d.utility.Vector3dVector(bowl_color)
+    pcd_std = o3d.geometry.PointCloud()
+    pcd_std.points = o3d.utility.Vector3dVector(pcd_np)
+    pcd_std.colors = o3d.utility.Vector3dVector(pcd_np_color)
 
-    mesh:o3d.geometry.TriangleMesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, 2.0)
-    hull_ls = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
-    hull_ls.paint_uniform_color((1, 0, 0))
+    pcd_std = remove_inner_pcd(pcd_std, resolution=resolution, type='cone')
+    o3d.io.write_point_cloud('/home/quan/Desktop/company/3d_model/std_pcd.ply', pcd_std)
+    print('[DEBUG]: Surface Point Cloud: ',pcd_std)
 
-    # print('[DEBUG]: Before Voxel: ', pcd)
-    # pcd = pcd.voxel_down_sample(1.0)
-    # voxel_grid:o3d.geometry.VoxelGrid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
-    # print('[DEBUG]: After Voxel: ', pcd)
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+        size=20.0, origin=pcd.get_center()
+    )
 
-    ### debug
     o3d.visualization.draw_geometries([
         pcd,
-        # hull_ls
+        pcd_std,
+        mesh_frame
     ])
 
-    # pcd_tree = o3d.geometry.KDTreeFlann(pcd)
-    #
-    # select_idx = 100
-    # pcd.colors[select_idx] = [255, 0, 0]
-    # # [k, idx, dist] = pcd_tree.search_knn_vector_3d(pcd.points[0], knn=5)
-    # [k, idxs, fake_dists] = pcd_tree.search_radius_vector_3d(pcd.points[select_idx], 1.5)
-    # idxs = idxs[1:]
-    # fake_dists = fake_dists[1:]
-    # for idx, fake_dist in zip(idxs, fake_dists):
-    #     pcd.colors[idx] = [0, 255, 0]
-    #
-    #     from_point = pcd.points[select_idx]
-    #     to_point = pcd.points[idx]
-    #     print('from: ', from_point, ' to: ', to_point)
-    #     print('est: ', fake_dist, ' cal: ', np.sqrt(np.sum(np.power(from_point-to_point, 2))))
-    #     print('')
-    #
-    # o3d.visualization.draw_geometries([pcd])
+def level_show():
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/std_pcd.ply')
+    pcd = level_color_pcd(pcd)
+
+    # pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/fuse_all.ply')
+    # pcd_np = (np.asarray(pcd.points)).copy()
+    # pcd_color = (np.asarray(pcd.colors)).copy()
+    # pcd_np, pcd_color = pandas_voxel(pcd_np, pcd_color, resolution=3.0)
+    # pcd_std = o3d.geometry.PointCloud()
+    # pcd_std.points = o3d.utility.Vector3dVector(pcd_np)
+    # pcd_std.colors = o3d.utility.Vector3dVector(pcd_color)
+    # pcd_std = level_color_pcd(pcd_std)
+
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+        size=20.0, origin=pcd.get_center()
+    )
+
+    o3d.visualization.draw_geometries([pcd, mesh_frame])
 
 if __name__ == '__main__':
-    main()
+    # pcd_standard()
+    level_show()
