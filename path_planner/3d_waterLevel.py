@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 from copy import deepcopy, copy
 
-class WaterLevel_Planner(object):
+class WaterLevel_3D_Planner(object):
 
     pcd:np.array
     kd_tree:o3d.geometry.KDTreeFlann
@@ -19,11 +19,12 @@ class WaterLevel_Planner(object):
     add_idxs = []
 
     def step_visulize(self, vis:o3d.visualization.VisualizerWithKeyCallback):
-        print('[DEBUG]: Current Pose: ', self.cur_pos, ' cur_idx: ',self.cur_idx)
-
         status, next_pos, next_idx = self.plan_one_step(debug=True)
 
         if status:
+            print('[DEBUG]: From Pose: ', self.cur_pos, ' cur_idx: ', self.cur_idx)
+            print('[DEBUG]: To Pose: ', next_pos, ' next_idx: ', next_idx)
+
             lines = np.asarray(self.path_o3d.lines).copy()
             lines = np.concatenate((lines, np.array([[self.cur_idx, next_idx]])))
             lines = o3d.utility.Vector2iVector(lines)
@@ -50,6 +51,15 @@ class WaterLevel_Planner(object):
 
         self.pcd = (np.asarray(self.referce_pcd_o3d.points)).copy()
         self.kd_tree = o3d.geometry.KDTreeFlann(self.referce_pcd_o3d)
+
+        ### ------ debug find opt start pose
+        zmax = self.pcd[:, 2].max()
+        select_data = self.pcd[self.pcd[:, 2]==zmax]
+        ymin = select_data[:, 1].min()
+        select_data = select_data[select_data[:, 1]==ymin]
+        select_idx = np.argmin(select_data[:, 0])
+        start_pos = select_data[select_idx]
+        ### ------
 
         k, idxs, _ = self.kd_tree.search_knn_vector_3d(
             query=start_pos, knn=1
@@ -99,8 +109,7 @@ class WaterLevel_Planner(object):
             return success, None, None
 
         neigobours_pcd = self.pcd[idxs]
-        costs = self.cost_fun_1(self.cur_pos, to_pos=neigobours_pcd)
-        # costs = self.cost_fun_2(self.cur_pos, to_pos=neigobours_pcd)
+        costs = self.cost_fun(self.cur_pos, to_pos=neigobours_pcd)
         select_idx = np.argmin(costs)
 
         next_idx = idxs[select_idx]
@@ -116,38 +125,60 @@ class WaterLevel_Planner(object):
 
         return success, next_pos, next_idx
 
-    def cost_fun_2(self, from_pos, to_pos):
+    def cost_fun(self, from_pos, to_pos):
         dist = to_pos - from_pos
-        cost = self.cost_weight * dist
-        cost = np.sum(cost, axis=1)
-        return cost
-
-    def cost_fun_1(self, from_pos, to_pos):
-        dist = to_pos - from_pos
+        cost_mat = np.zeros(dist.shape)
 
         ### sequense cost
-        dist[dist[:, 2] > 0, 2] = dist[dist[:, 2] > 0, 2] * 1.0
-        dist[dist[:, 1] > 0, 1] = dist[dist[:, 1] > 0, 1] * 3.0
-        dist[dist[:, 0] > 0, 0] = dist[dist[:, 0] > 0, 0] * 5.0
+        cost_mat[dist[:, 2] > 0, 2] = dist[dist[:, 2] > 0, 2] * 1.0
+        cost_mat[dist[:, 1] < 0, 1] = np.abs(dist[dist[:, 1] < 0, 1]) * 3.0
+        cost_mat[dist[:, 0] > 0, 0] = dist[dist[:, 0] > 0, 0] * 5.0
 
-        dist[dist[:, 0] < 0, 0] = np.abs(dist[dist[:, 0] < 0, 0]) * 6.0
-        dist[dist[:, 1] < 0, 1] = np.abs(dist[dist[:, 1] < 0, 1]) * 8.0
-        dist[dist[:, 2] < 0, 2] = np.abs(dist[dist[:, 2] < 0, 2]) * 10.0
+        cost_mat[dist[:, 0] < 0, 0] = np.abs(dist[dist[:, 0] < 0, 0]) * 6.0
+        cost_mat[dist[:, 1] > 0, 1] = dist[dist[:, 1] > 0, 1] * 8.0
+        cost_mat[dist[:, 2] < 0, 2] = np.abs(dist[dist[:, 2] < 0, 2]) * 30.0
 
-        cost = np.sum(dist, axis=1)
+        cost = np.sum(cost_mat, axis=1)
         return cost
 
 def main():
     from path_planner.utils import level_color_pcd
 
-    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/Reconst3D_Pipeline/path_planner/std_pcd.ply')
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/Desktop/model/output/std_pcd.ply')
     pcd = level_color_pcd(pcd)
 
-    planner = WaterLevel_Planner()
+    planner = WaterLevel_3D_Planner()
     planner.plan_visulize(
-        start_pos=np.array([0., 0., 0.]), resolution=7.0,
+        start_pos=np.array([0., 0., 0.]), resolution=7.5,
         pcd_o3d=pcd
     )
+
+    # kd_tree = o3d.geometry.KDTreeFlann(pcd)
+    # pcd.colors[480] = [0.0, 1.0, 0.0]
+    #
+    # query = pcd.points[480]
+    # print('query: ',query)
+    # _, idxs_r, dists_r = kd_tree.search_radius_vector_3d(query, radius=7.0)
+    # print(idxs_r)
+    # idxs_r = np.asarray(idxs_r)[1:]
+    # dists_r = np.asarray(dists_r)[1:]
+    # for idx, dist in zip(idxs_r, dists_r):
+    #     neig = pcd.points[idx]
+    #     cal_dist = np.sqrt(np.sum(np.power(neig - query, 2)))
+    #     print('radiu neig: ', neig, ' est: ', dist, ' cal: ', cal_dist)
+    #
+    # _, idxs_k, dists_k = kd_tree.search_knn_vector_3d(query, knn=4)
+    # print(idxs_k)
+    # idxs_k = np.asarray(idxs_k)[1:]
+    # dists_k = np.asarray(dists_k)[1:]
+    # for idx, dist in zip(idxs_k, dists_k):
+    #     neig = pcd.points[idx]
+    #     cal_dist = np.sqrt(np.sum(np.power(neig - query, 2)))
+    #     print('knn neig: ', neig, ' est: ', dist, ' cal: ', cal_dist)
+    #
+    #     pcd.colors[idx] = [1.0, 0.0, 0.0]
+    #
+    # o3d.visualization.draw_geometries([pcd])
 
 if __name__ == '__main__':
     main()

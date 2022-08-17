@@ -12,7 +12,7 @@ np.set_printoptions(suppress=True)
 
 def pcd_standard():
     resolution = 5.0
-    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/fuse_all.ply')
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/Desktop/model/output/fuse_all.ply')
     pcd = pcd.voxel_down_sample(resolution / 2.0)
 
     pcd_np = np.asarray(pcd.points)
@@ -26,7 +26,7 @@ def pcd_standard():
     pcd_std.colors = o3d.utility.Vector3dVector(pcd_np_color)
 
     pcd_std = remove_inner_pcd(pcd_std, resolution=resolution, type='cone')
-    o3d.io.write_point_cloud('/home/quan/Desktop/company/3d_model/std_pcd.ply', pcd_std)
+    o3d.io.write_point_cloud('/home/psdz/Desktop/model/output/std_pcd.ply', pcd_std)
     print('[DEBUG]: Surface Point Cloud: ',pcd_std)
 
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
@@ -40,10 +40,10 @@ def pcd_standard():
     ])
 
 def level_show():
-    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/std_pcd.ply')
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/Desktop/model/output/std_pcd.ply')
     pcd = level_color_pcd(pcd)
 
-    # pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/fuse_all.ply')
+    # pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/Desktop/model/output/fuse_all.ply')
     # pcd_np = (np.asarray(pcd.points)).copy()
     # pcd_color = (np.asarray(pcd.colors)).copy()
     # pcd_np, pcd_color = pandas_voxel(pcd_np, pcd_color, resolution=3.0)
