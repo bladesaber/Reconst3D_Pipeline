@@ -1,0 +1,5 @@
+1，基于map生成large cell size的grap map
+2，每个cell分为3种情况：a，full（完全被障碍物占据）b，mix（部分被障碍物占据）c，free（没障碍物）
+3，基于mix以及free的cell来做AStar
+
+4，AStar路径涵括的cell进行四细分，即一个cell分为4个cell，对这些细分的cell进行第（2）步的状态分配，再进行第（3）步的规划，以此循环

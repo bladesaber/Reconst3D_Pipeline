@@ -108,21 +108,4 @@
 # #     t.join()
 #
 
-import cv2
-import numpy as np
 
-a = np.array([
-    [0,1,2],
-    [3,4,5],
-    [6,7,8]
-])
-
-b = np.array([0,1,2])
-print(a[b, b])
-
-c = np.array([
-    [0,0],
-    [1,1],
-    [2,2]
-])
-print(a[c])
