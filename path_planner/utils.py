@@ -56,6 +56,7 @@ def create_fake_bowl_pcd(
     return points_cloud, level_color
 
 def pandas_voxel(data: np.array, colors=None, resolution=1.0):
+    data = data.copy()
     voxel_points = pd.DataFrame(data, columns=['x', 'y', 'z'])
 
     voxel_points['x'] = (voxel_points['x'] / resolution).round(decimals=0)

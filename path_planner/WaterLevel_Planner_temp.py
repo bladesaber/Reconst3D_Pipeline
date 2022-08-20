@@ -3,7 +3,6 @@ import numpy as np
 from copy import deepcopy, copy
 
 class WaterLevel_3D_Planner(object):
-
     pcd:np.array
     kd_tree:o3d.geometry.KDTreeFlann
     visit_tree:np.array
