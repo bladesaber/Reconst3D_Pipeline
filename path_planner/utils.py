@@ -240,6 +240,8 @@ def alpha_shape_delaunay_mask(points, alpha):
 
     return dt, is_in_shape
 
+
+
 if __name__ == '__main__':
     create_fake_bowl_pcd(
         x_start=-10, x_finish=-8.0, resoltuion=0.2,

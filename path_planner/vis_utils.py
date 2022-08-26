@@ -60,14 +60,10 @@ class StepVisulizer(object):
             print('Finish')
 
 class TreePlainner_3d(object):
-    def plain(self, pcd:np.array, node:TreeNode):
+    def plain(self, pcd_o3d:o3d.geometry.PointCloud, node:TreeNode):
         line_set = []
         line_set = self.tree_plt(None, node, line_set)
         line_set = np.array(line_set).astype(np.int64)
-
-        pcd_o3d = o3d.geometry.PointCloud()
-        pcd_o3d.points = o3d.utility.Vector3dVector(pcd)
-        pcd_o3d.colors = o3d.utility.Vector3dVector(np.tile(np.array([[0.0, 0.0, 1.0]]), (pcd.shape[0], 1)))
 
         path_o3d = o3d.geometry.LineSet()
         path_o3d.points = pcd_o3d.points

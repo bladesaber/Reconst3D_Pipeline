@@ -41,7 +41,7 @@ def pcd_expand_standard():
 
 def pcd_standard():
     resolution = 3.0
-    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/quan/Desktop/company/3d_model/fuse_all.ply')
+    pcd: o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/fuse_all.ply')
     pcd = pcd.voxel_down_sample(resolution / 2.0)
 
     pcd_np = np.asarray(pcd.points)

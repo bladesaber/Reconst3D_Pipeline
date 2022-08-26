@@ -103,17 +103,21 @@ def create_BiasDist_tsp_question():
     np.save(os.path.join(dir, 'pcd_tsp'), xys)
 
 def create_BiasDist_3dtsp_question():
-    pcd:o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/pcd_test.ply')
+    pcd:o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/std_pcd_valid.ply')
     xyzs = np.asarray(pcd.points)
 
     radius = 7.1
     max_length = 0.0
 
     dist_graph = np.zeros((xyzs.shape[0], xyzs.shape[0]))
+    dist_std_graph = np.zeros((xyzs.shape[0], xyzs.shape[0]))
     for idx, xyz in enumerate(xyzs):
         dist = xyz - xyzs
 
         dist_src = np.sqrt(np.sum(np.power(dist, 2), axis=1))
+        dist_std_graph[idx, :] = dist_src
+        dist_std_graph[idx, idx] = 1e8
+
         exclude_idxs = np.nonzero(dist_src > radius)[0]
         # include_idxs = np.nonzero(dist_src <= radius)[0]
 
@@ -136,6 +140,7 @@ def create_BiasDist_3dtsp_question():
 
     dir = '/home/psdz/HDD/quan/3d_model/test'
     np.save(os.path.join(dir, 'graph_tsp_test'), dist_graph)
+    np.save(os.path.join(dir, 'graph_std_tsp_test'), dist_std_graph)
     np.save(os.path.join(dir, 'pcd_tsp_test'), xyzs)
 
     print('[DEBUG]: Max Vaild Length: ', max_length)
