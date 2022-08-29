@@ -103,7 +103,7 @@ def create_BiasDist_tsp_question():
     np.save(os.path.join(dir, 'pcd_tsp'), xys)
 
 def create_BiasDist_3dtsp_question():
-    pcd:o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/std_pcd_valid.ply')
+    pcd:o3d.geometry.PointCloud = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/shrink_pcd.ply')
     xyzs = np.asarray(pcd.points)
 
     radius = 7.1

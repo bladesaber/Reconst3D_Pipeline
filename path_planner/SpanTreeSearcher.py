@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from path_planner.vis_utils import TreePlainner_2d, TreePlainner_3d, StepVisulizer, GeneralVis
 from path_planner.node_utils import DepthFirstPath_Extractor, PreLoaderPath_Extractor
-from path_planner.tsp_opt_utils import ChristofidesOpt
+from path_planner.TreeChristof_TspOpt import TreeChristofidesOpt
 
 np.set_printoptions(suppress=True)
 
@@ -174,66 +174,63 @@ class SpanningTreeSearcher(object):
 
         return tree_node, open_set, (from_idx, select_idx)
 
-    def traverse_tree(
-            self,
-            node: TreeNode,
-            pcd: np.array, dist_graph: np.array,
-            opt_group: ChristofidesOpt,
-            new_level_node: list,
-    ):
-        '''
-        Default: Split Based On Z Axes
-        '''
-
-        for child in node.childs:
-            from_pcd = pcd[node.idx]
-            to_pcd = pcd[child.idx]
-
-            if (from_pcd[2] - to_pcd[2]) != 0:
-                new_level_node.append(child)
-            else:
-                opt_group.add_edge(node.idx, child.idx, weight=dist_graph[node.idx, child.idx])
-                self.traverse_tree(
-                    child, pcd=pcd,
-                    dist_graph=dist_graph, opt_group=opt_group, new_level_node=new_level_node
-                )
-
-        return opt_group, new_level_node
-
-    def split_level_opt_group(self, start_node, pcd: np.array, dist_graph: np.array, thresolds):
-        ### todo Be careful, the distance graph here is different
-
-        opt_groups = {}
-        level_start_node_unvisted = [start_node]
-
-        group_id = 0
-        while len(level_start_node_unvisted) > 0:
-            level_node = level_start_node_unvisted.pop()
-
-            opt_group = ChristofidesOpt()
-            opt_group, new_level_node_found = self.traverse_tree(
-                level_node, pcd=pcd,
-                dist_graph=dist_graph, opt_group=opt_group, new_level_node=[]
-            )
-
-            found = False
-            for thresold in thresolds:
-                try:
-                    status, path = opt_group.run(dist_graph=dist_graph, thresold=thresold, start_idx=level_node.idx)
-                    found = True
-                except:
-                    pass
-
-            if found:
-                path = opt_group.shrink_euler_path(path)
-            else:
-                path = None
-
-            level_start_node_unvisted.extend(new_level_node_found)
-            opt_groups[group_id] = {"opt": opt_group, 'start_node': level_node, 'path': path, 'status': found}
-            group_id += 1
-
-        return opt_groups
+    # def traverse_tree(
+    #         self,
+    #         node: TreeNode,
+    #         pcd: np.array, dist_graph: np.array,
+    #         opt_group: ChristofidesOpt,
+    #         new_level_node: list,
+    # ):
+    #     for child in node.childs:
+    #         from_pcd = pcd[node.idx]
+    #         to_pcd = pcd[child.idx]
+    #
+    #         ### todo Default: Split Based On Z Axes
+    #         if (from_pcd[2] - to_pcd[2]) != 0:
+    #             new_level_node.append(child)
+    #         else:
+    #             opt_group.add_edge(node.idx, child.idx, weight=dist_graph[node.idx, child.idx])
+    #             self.traverse_tree(
+    #                 child, pcd=pcd,
+    #                 dist_graph=dist_graph, opt_group=opt_group, new_level_node=new_level_node
+    #             )
+    #
+    #     return opt_group, new_level_node
+    #
+    # def split_level_opt_group(self, start_node, pcd: np.array, dist_graph: np.array, thresolds):
+    #     ### todo Be careful, the distance graph here is different
+    #
+    #     opt_groups = {}
+    #     level_start_node_unvisted = [start_node]
+    #
+    #     group_id = 0
+    #     while len(level_start_node_unvisted) > 0:
+    #         level_node = level_start_node_unvisted.pop()
+    #
+    #         opt_group = ChristofidesOpt()
+    #         opt_group, new_level_node_found = self.traverse_tree(
+    #             level_node, pcd=pcd,
+    #             dist_graph=dist_graph, opt_group=opt_group, new_level_node=[]
+    #         )
+    #
+    #         found = False
+    #         for thresold in thresolds:
+    #             try:
+    #                 status, path = opt_group.run(dist_graph=dist_graph, thresold=thresold, start_idx=level_node.idx)
+    #                 found = True
+    #             except:
+    #                 pass
+    #
+    #         if found:
+    #             path = opt_group.shrink_euler_path(path)
+    #         else:
+    #             path = None
+    #
+    #         level_start_node_unvisted.extend(new_level_node_found)
+    #         opt_groups[group_id] = {"opt": opt_group, 'start_node': level_node, 'path': path, 'status': found}
+    #         group_id += 1
+    #
+    #     return opt_groups
 
 class VisSpanTree(GeneralVis):
     def run(self, pcd_o3d, dist_graph, start_idx):
@@ -323,64 +320,6 @@ class DegreeTreePlainer(TreePlainner_3d):
 
         super(DegreeTreePlainer, self).plain(pcd_o3d=pcd_o3d, node=node)
 
-class PathPlainer(object):
-    def __init__(self):
-        self.vis = o3d.visualization.VisualizerWithKeyCallback()
-
-    def plain(self, pcd: np.array, line_set):
-        self.line_set = line_set
-        self.draw_id = 0
-
-        pcd_3d = pcd.copy()
-        self.pcd_o3d = o3d.geometry.PointCloud()
-        self.pcd_o3d.points = o3d.utility.Vector3dVector(pcd_3d)
-        self.pcd_o3d.colors = o3d.utility.Vector3dVector(np.tile(np.array([[0.0, 0.0, 1.0]]), (pcd_3d.shape[0], 1)))
-
-        self.path_o3d = o3d.geometry.LineSet()
-        self.path_o3d.points = self.pcd_o3d.points
-        # self.path_o3d.lines = o3d.utility.Vector2iVector(line_set)
-        # self.path_o3d.colors = o3d.utility.Vector3dVector(np.tile(np.array([[1.0, 0.0, 0.0]]), (line_set.shape[0], 1)))
-
-        self.vis.create_window(height=720, width=960)
-
-        src_pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/fuse_all.ply')
-
-        opt = self.vis.get_render_option()
-        # opt.background_color = np.asarray([0, 0, 0])
-        opt.line_width = 100.0
-
-        self.vis.add_geometry(self.path_o3d)
-        self.vis.add_geometry(self.pcd_o3d)
-        self.vis.add_geometry(src_pcd)
-
-        self.vis.register_key_callback(ord(','), self.step_visulize)
-
-        self.vis.run()
-        self.vis.destroy_window()
-
-    def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
-        if self.draw_id < len(self.line_set) - 1:
-            from_id = self.line_set[self.draw_id][0]
-            to_id = self.line_set[self.draw_id][1]
-
-            lines = np.asarray(self.path_o3d.lines).copy()
-            lines = np.concatenate(
-                [lines, np.array([[from_id, to_id]])], axis=0
-            )
-            lines = o3d.utility.Vector2iVector(lines)
-            self.path_o3d.lines = lines
-
-            self.pcd_o3d.colors[from_id] = [0.0, 1.0, 0.0]
-            self.pcd_o3d.colors[to_id] = [1.0, 0.0, 0.0]
-
-            vis.update_geometry(self.path_o3d)
-            vis.update_geometry(self.pcd_o3d)
-
-            self.draw_id += 1
-
-        else:
-            print('Finish')
-
 def main():
     ### ------- debug for 2d graph
     # pcd = np.load('/home/psdz/HDD/quan/3d_model/test/pcd_tsp_1.npy')
@@ -445,7 +384,8 @@ def main():
     # vis.run(pcd_o3d=pcd_o3d, route=route, dist_graph=graph)
 
     ### ------ Level Group Vis
-    opt_graphs = model.split_level_opt_group(
+    optizer = TreeChristofidesOpt()
+    opt_graphs = optizer.split_level_opt_group(
         start_node, pcd=pcd, dist_graph=std_graph,
         thresolds=[10.0, 20.0, 30.0, 40.0, 50.0]
     )
@@ -462,30 +402,6 @@ def main():
     #
     # vis = VisLevelGroup()
     # vis.run(pcd_o3d=pcd_o3d, groups=groups)
-
-    line_set = []
-    for key in opt_graphs.keys():
-        opt_group = opt_graphs[key]
-
-        status = opt_group['status']
-        if status:
-            path = opt_group['path']
-            route = []
-            for idx in range(len(path) - 1):
-                route.append([path[idx], path[idx + 1]])
-
-            route = np.array(route)
-            line_set.append(route)
-        else:
-            print('[DEBUG]: Fail')
-
-    line_set = np.concatenate(line_set, axis=0)
-
-    np.savetxt('/home/psdz/HDD/quan/3d_model/test/result/route.csv', line_set, delimiter=',')
-    np.savetxt('/home/psdz/HDD/quan/3d_model/test/result/pcd.csv', pcd, delimiter=',')
-
-    path_plainer = PathPlainer()
-    path_plainer.plain(pcd=pcd, line_set=line_set)
 
 if __name__ == '__main__':
     main()
