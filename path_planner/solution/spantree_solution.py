@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import argparse
 from copy import copy, deepcopy
+from tqdm import tqdm
 
 from path_planner.node_utils import TreeNode
 from path_planner.SpanTreeSearcher import SpanningTreeSearcher
@@ -101,14 +102,51 @@ class SpanTree_Solution(object):
         cost = np.sum(dists)
         return cost
 
+    def compute_normal_vec(self, poses:np.array, pcd:o3d.geometry.PointCloud, radius_list):
+        pcd.estimate_normals()
+        kd_tree = o3d.geometry.KDTreeFlann(pcd)
+
+        pcd_np = np.asarray(pcd.points)
+        normal_np = np.asarray(pcd.normals)
+
+        pose_norms = []
+        for pos in tqdm(poses):
+            for radius in radius_list:
+                _, idxs, _ = kd_tree.search_radius_vector_3d(query=pos, radius=radius)
+                idxs = np.asarray(idxs)
+
+                if idxs.shape[0]>0:
+                    break
+
+            response_pcd = pcd_np[idxs]
+            response_norm = normal_np[idxs]
+
+            dirction = pos - np.mean(response_pcd, axis=0)
+            length = np.linalg.norm(dirction, ord=2)
+            dirction = dirction / length
+
+            cos_theta = np.sum(response_norm * dirction, axis=1)
+            wrong_direction = cos_theta<0
+            response_norm[wrong_direction] = -response_norm[wrong_direction]
+
+            norm = np.mean(response_norm, axis=0)
+            norm = norm / np.linalg.norm(norm, ord=2)
+
+            pose_norms.append(norm)
+
+        pose_norms = np.array(pose_norms)
+        return pose_norms
+
     def solve(
             self,
             pcd:o3d.geometry.PointCloud,
+            compute_pose_norm,
             std_resolution, save_std_pcd,
             save_dist_graph, save_route,
             try_times, debug_vis
     ):
         std_pcd = self.pcd_expand_standard(pcd=pcd, resolution=std_resolution)
+
         if save_std_pcd:
             save_std_pcd_path = os.path.join(self.save_dir, 'std_pcd.ply')
             o3d.io.write_point_cloud(save_std_pcd_path, std_pcd)
@@ -117,6 +155,14 @@ class SpanTree_Solution(object):
         z_levels = np.unique(std_pcd_np[:, 2])
 
         connect_thre = np.sqrt(np.sum(np.power([std_resolution, std_resolution], 2))) * 1.01
+
+        if compute_pose_norm:
+            std_pcd_normal_np = self.compute_normal_vec(
+                std_pcd_np, pcd=pcd,
+                radius_list=[std_resolution*1.01, connect_thre]
+            )
+            save_std_pcd_path = os.path.join(self.save_dir, 'pcd_norm.csv')
+            np.savetxt(save_std_pcd_path, std_pcd_normal_np, fmt='%.3f', delimiter=',')
 
         groups = {}
         group_id = 0
@@ -209,9 +255,23 @@ def main():
         save_dir=args.save_dir
     )
     solver.solve(
-        pcd=pcd, std_resolution=5.0,
+        pcd=pcd, std_resolution=5.0, compute_pose_norm=True,
         save_std_pcd=True, save_dist_graph=True, save_route=True, try_times=150, debug_vis=True
     )
+
+    # poses = np.loadtxt('/home/psdz/HDD/quan/3d_model/test/output/pcd.csv', delimiter=',')
+    # pcd = o3d.io.read_point_cloud('/home/psdz/HDD/quan/3d_model/test/fuse_all.ply')
+    #
+    # pose_norms = solver.compute_normal_vec(poses, copy(pcd), radius_list=[5.1, 7.1])
+    #
+    # pos_pcd = o3d.geometry.PointCloud()
+    # pos_pcd.points = o3d.utility.Vector3dVector(poses)
+    # pos_pcd.colors = o3d.utility.Vector3dVector(np.tile(
+    #     np.array([[0.0, 0.0, 1.0]]), (poses.shape[0], 1)
+    # ))
+    # pos_pcd.normals = o3d.utility.Vector3dVector(pose_norms)
+    #
+    # o3d.visualization.draw_geometries([pos_pcd, pcd], point_show_normal=True)
 
 if __name__ == '__main__':
     main()
