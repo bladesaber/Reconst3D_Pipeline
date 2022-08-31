@@ -30,11 +30,13 @@ class ChristofidesOpt(object):
         global_status = True
         degree_dict = dict(new_graph.degree())
 
+        odd_count = 0
         odd_graph = nx.Graph()
         for from_node in degree_dict.keys():
             degree = degree_dict[from_node]
             if degree % 2 != 0:
                 status = False
+                odd_count += 1
 
                 connect_idxs = np.nonzero(dist_graph[from_node, :]<thresold)[0]
                 for to_node in connect_idxs:
@@ -48,6 +50,9 @@ class ChristofidesOpt(object):
                     # raise ValueError("[DEBUG]: Can Not Create Euler Circle")
                     fail_vertexs.append(from_node)
                     global_status = False
+
+        assert odd_count % 2 ==0
+        # print('[DEBUG]: Graph Odd Count: ', odd_count)
 
         if global_status:
             match = nx.min_weight_matching(odd_graph, maxcardinality=True)
@@ -125,8 +130,8 @@ class TreeChristofidesOpt(object):
     def solve_groups(self, groups:dict):
         for key in groups.keys():
             groups[key] = self.tsp_solve_group(groups[key])
-
         return groups
+
     def tsp_solve_group(self, opt_group):
         opt_tsp = opt_group['opt']
         found = False
@@ -149,21 +154,4 @@ class TreeChristofidesOpt(object):
         opt_group['status'] = found
         opt_group['path'] = path
 
-    def extract_path(self, opt_graphs):
-        route = []
-        for key in opt_graphs.keys():
-            opt_group = opt_graphs[key]
-
-            status = opt_group['status']
-            if status:
-                path = opt_group['path']
-                for idx in range(len(path)-1):
-                    if idx==0:
-                        route.append(path[idx])
-
-                    route.append(path[idx+1])
-
-            else:
-                print('[DEBUG]: Fail')
-
-        return route
+        return opt_group

@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 from path_planner.node_utils import TreeNode
 
 class StepVisulizer(object):
-    def run(self, pcd_o3d:o3d.geometry.PointCloud, route, dist_graph=None):
+    dist_graph = None
+
+    def run(self, pcd_o3d:o3d.geometry.PointCloud, route, dist_graph=None, refer_pcd=None):
         self.draw_id = 0
         self.route = route
 
@@ -25,6 +27,8 @@ class StepVisulizer(object):
 
         self.vis.add_geometry(self.path_o3d)
         self.vis.add_geometry(pcd_o3d)
+        if refer_pcd is not None:
+            self.vis.add_geometry(refer_pcd)
 
         self.vis.register_key_callback(ord(','), self.step_visulize)
 
@@ -60,9 +64,14 @@ class StepVisulizer(object):
             print('Finish')
 
 class TreePlainner_3d(object):
-    def plain(self, pcd_o3d:o3d.geometry.PointCloud, node:TreeNode):
+    def plain(self, pcd_o3d:o3d.geometry.PointCloud, node:TreeNode, with_degree):
+        self.pcd_o3d = pcd_o3d
+        self.with_degree = with_degree
+        if self.with_degree:
+            self.degree_color = {}
+
         line_set = []
-        line_set = self.tree_plt(None, node, line_set)
+        line_set = self.tree_plt(None, node, line_set, with_degree=with_degree)
         line_set = np.array(line_set).astype(np.int64)
 
         path_o3d = o3d.geometry.LineSet()
@@ -77,13 +86,22 @@ class TreePlainner_3d(object):
         vis.run()
         vis.destroy_window()
 
-    def tree_plt(self, prev_node:TreeNode, cur_node:TreeNode, line_set:list):
+    def tree_plt(self, prev_node:TreeNode, cur_node:TreeNode, line_set:list, with_degree=True):
         if prev_node is not None:
             line_set.append([prev_node.idx, cur_node.idx])
 
+        if with_degree:
+            degree = len(cur_node.childs) + 1
+            if degree in self.degree_color.keys():
+                color = self.degree_color[degree]
+            else:
+                color = np.random.random((3, ))
+                self.degree_color[degree] = color
+            self.pcd_o3d.colors[cur_node.idx] = color
+
         if len(cur_node.childs)>0:
             for child in cur_node.childs:
-                self.tree_plt(cur_node, child, line_set)
+                self.tree_plt(cur_node, child, line_set, with_degree=with_degree)
 
         return line_set
 
