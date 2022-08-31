@@ -15,6 +15,7 @@ from path_planner.utils import expand_standard_voxel, remove_inner_pcd
 from path_planner.utils import cone_windows
 from path_planner.vis_utils import TreePlainner_3d
 from path_planner.vis_utils import StepVisulizer
+from path_planner.utils import ConeSampler, pcd_gaussian_blur
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,22 +53,42 @@ class SpanTree_Solution(object):
     def __init__(self, save_dir):
         self.save_dir = save_dir
 
-    def pcd_expand_standard(self, pcd:o3d.geometry.PointCloud, resolution):
-        pcd_down = pcd.voxel_down_sample(resolution / 2.0)
+    # def pcd_expand_standard(self, pcd:o3d.geometry.PointCloud, resolution):
+    #     '''
+    #     deprecite
+    #     '''
+    #     pcd_down = pcd.voxel_down_sample(resolution / 2.0)
+    #
+    #     pcd_np = np.asarray(pcd_down.points)
+    #     print('[DEBUG]: Pcd Shape: ', pcd_np.shape)
+    #     pcd_np = expand_standard_voxel(pcd_np, resolution=resolution, windows=cone_windows)
+    #     pcd_np_color = np.tile(np.array([[0.0, 0.0, 1.0]]), (pcd_np.shape[0], 1))
+    #     print('[DEBUG]: Expand Pcd Shape: ', pcd_np.shape)
+    #
+    #     pcd_std = o3d.geometry.PointCloud()
+    #     pcd_std.points = o3d.utility.Vector3dVector(pcd_np)
+    #     pcd_std.colors = o3d.utility.Vector3dVector(pcd_np_color)
+    #
+    #     pcd_std = remove_inner_pcd(pcd_std, resolution=resolution, type='cone')
+    #
+    #     return pcd_std
 
-        pcd_np = np.asarray(pcd_down.points)
-        print('[DEBUG]: Pcd Shape: ', pcd_np.shape)
-        pcd_np = expand_standard_voxel(pcd_np, resolution=resolution, windows=cone_windows)
-        pcd_np_color = np.tile(np.array([[0.0, 0.0, 1.0]]), (pcd_np.shape[0], 1))
-        print('[DEBUG]: Expand Pcd Shape: ', pcd_np.shape)
+    def pcd_expand_standard(self, pcd: o3d.geometry.PointCloud, resolutions):
+        kd_tree = o3d.geometry.KDTreeFlann(pcd)
+        pcd_np = np.asarray(pcd.points).copy()
 
-        pcd_std = o3d.geometry.PointCloud()
-        pcd_std.points = o3d.utility.Vector3dVector(pcd_np)
-        pcd_std.colors = o3d.utility.Vector3dVector(pcd_np_color)
+        # resolutions = [12.0, 6.0, 3.0]
 
-        pcd_std = remove_inner_pcd(pcd_std, resolution=resolution, type='cone')
+        sampler = ConeSampler()
+        cones = sampler.sample(pcd_np, kd_tree, thre=1.0, resolutions=resolutions)
 
-        return pcd_std
+        cone_pcd = o3d.geometry.PointCloud()
+        cone_pcd.points = o3d.utility.Vector3dVector(cones)
+        cone_pcd.colors = o3d.utility.Vector3dVector(np.tile(
+            np.array([[0.0, 0.0, 1.0]]), (cones.shape[0], 1)
+        ))
+        cone_pcd = sampler.remove_inner_cones(cone_pcd, resolution=resolutions[-1])
+        return cone_pcd
 
     def create_tsp_question(self, xys:np.array):
         dist_graph = np.zeros((xys.shape[0], xys.shape[0]))
@@ -141,11 +162,16 @@ class SpanTree_Solution(object):
             self,
             pcd:o3d.geometry.PointCloud,
             compute_pose_norm,
-            std_resolution, save_std_pcd,
+            voxel_down, resolutions,
+            save_std_pcd,
             save_dist_graph, save_route,
             try_times, debug_vis
     ):
-        std_pcd = self.pcd_expand_standard(pcd=pcd, resolution=std_resolution)
+        pcd_blur = pcd.voxel_down_sample(voxel_down)
+        pcd_blur = pcd_gaussian_blur(pcd_blur, knn=8)
+        std_resolution = resolutions[-1]
+
+        std_pcd = self.pcd_expand_standard(pcd=pcd_blur, resolutions=resolutions)
 
         if save_std_pcd:
             save_std_pcd_path = os.path.join(self.save_dir, 'std_pcd.ply')
@@ -158,7 +184,7 @@ class SpanTree_Solution(object):
 
         if compute_pose_norm:
             std_pcd_normal_np = self.compute_normal_vec(
-                std_pcd_np, pcd=pcd,
+                std_pcd_np, pcd=pcd_blur,
                 radius_list=[std_resolution*1.01, connect_thre]
             )
             save_std_pcd_path = os.path.join(self.save_dir, 'pcd_norm.csv')
@@ -192,7 +218,7 @@ class SpanTree_Solution(object):
                     optizer, opt_tsp = self.create_optizer(dist_graph=dist_graph, start_node=node)
                     group = {
                         'distance': dist_graph, 'start_node': node,
-                        'opt':opt_tsp, 'thresolds':[connect_thre, connect_thre*2, connect_thre*4, connect_thre*8]
+                        'opt':opt_tsp, 'thresolds':[connect_thre, connect_thre*2, connect_thre*4]
                     }
                     group = optizer.tsp_solve_group(group)
 
@@ -209,43 +235,64 @@ class SpanTree_Solution(object):
                             group_id, node.idx, cost, best_cost
                         ))
 
-                if best_group['status']:
+                if best_group is not None:
                     best_group['route'] = level_idxs[best_group['path']]
 
-                include_idxs = list(best_tree_node.keys())
-                idxs_list = np.setdiff1d(idxs_list, include_idxs)
+                    include_idxs = list(best_tree_node.keys())
+                    idxs_list = np.setdiff1d(idxs_list, include_idxs)
 
-                ### debug
-                # plt.scatter(level_xy[include_idxs][:, 0], level_xy[include_idxs][:, 1], c='r')
-                # plt.scatter(level_xy[idxs_list][:, 0], level_xy[idxs_list][:, 1], c='g')
-                # plt.show()
+                    groups[group_id] = best_group
+                    group_id += 1
 
-                groups[group_id] = best_group
-                group_id += 1
+                    if idxs_list.shape[0]==0:
+                        break
 
-                if idxs_list.shape[0]==0:
+                else:
+                    ### debug
+                    # plt.scatter(level_xy[idxs_list][:, 0], level_xy[idxs_list][:, 1], c='g')
+                    # plt.show()
+                    print('Fail')
                     break
 
-        routes = []
         for key in groups.keys():
             group = groups[key]
-
             if group['status']:
                 route = group['route']
 
                 if save_route:
                     save_route_path = os.path.join(self.save_dir, 'route%d.csv' % key)
                     np.savetxt(save_route_path, route, fmt='%.2f', delimiter=',')
-                    routes.append(route)
+            else:
+                print('[DEBUG]: %d Fail'%key)
 
         save_pcd_path = os.path.join(self.save_dir, 'pcd.csv')
         np.savetxt(save_pcd_path, std_pcd_np, fmt='%.2f', delimiter=',')
 
         if debug_vis:
-            for route in routes:
+            for key in groups.keys():
+                print('[DEBUG]: ***********************')
+                print('Group ', key)
+
+                group = groups[key]
+                route = group['route']
                 pcd_redraw = deepcopy(std_pcd)
                 vis = StepVisulizer()
                 vis.run(pcd_o3d=pcd_redraw, route=route, refer_pcd=pcd)
+
+def debug_route():
+    args = parse_args()
+
+    save_dir = args.save_dir
+    pcd = o3d.io.read_point_cloud(os.path.join(save_dir, 'std_pcd.ply'))
+    refer_pcd = o3d.io.read_point_cloud(args.ply)
+
+    for route_file in os.listdir(save_dir):
+        if 'route' in route_file:
+            path = os.path.join(save_dir, route_file)
+            route = np.loadtxt(path, delimiter=',')
+            route = route.astype(np.int64).reshape(-1)
+            vis = StepVisulizer()
+            vis.run(copy(pcd), route=route, refer_pcd=refer_pcd)
 
 def main():
     args = parse_args()
@@ -255,8 +302,8 @@ def main():
         save_dir=args.save_dir
     )
     solver.solve(
-        pcd=pcd, std_resolution=5.0, compute_pose_norm=True,
-        save_std_pcd=True, save_dist_graph=True, save_route=True, try_times=150, debug_vis=True
+        pcd=pcd, resolutions=[16.0, 8.0, 4.0], voxel_down=1.0, compute_pose_norm=True,
+        save_std_pcd=True, save_dist_graph=False, save_route=True, try_times=10, debug_vis=True
     )
 
     # poses = np.loadtxt('/home/psdz/HDD/quan/3d_model/test/output/pcd.csv', delimiter=',')
@@ -274,5 +321,6 @@ def main():
     # o3d.visualization.draw_geometries([pos_pcd, pcd], point_show_normal=True)
 
 if __name__ == '__main__':
-    main()
+    # main()
+    debug_route()
 
