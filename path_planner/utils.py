@@ -242,7 +242,13 @@ def alpha_shape_delaunay_mask(points, alpha):
     return dt, is_in_shape
 
 class ConeSampler(object):
-
+    '''
+    todo 这里有不完备的地方，应该考虑添加约束，在统一连通图内，假定所有点对间均有连线，
+        去除穿越实体的连线获得可连通图，这个时候可能形成两个聚类实体，一个实体外表面，
+        一个实体内表面，通过定义一个实体外点，这个外点与“离该点最近的实体外表面上一点
+        的距离” 一定比 “这个外点与离该点最近的实体内表面上一点的距离“ 小，从而去除实
+        体内表面
+    '''
     def create_standard_cone(self, pcd:np.array, resolution):
         xmin, xmax = pcd[:, 0].min(), pcd[:, 0].max()
         ymin, ymax = pcd[:, 1].min(), pcd[:, 1].max()

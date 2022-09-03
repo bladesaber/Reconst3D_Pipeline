@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from path_planner.vis_utils import TreePlainner_2d, TreePlainner_3d, StepVisulizer, GeneralVis
 from path_planner.node_utils import DepthFirstPath_Extractor, PreLoaderPath_Extractor
-from path_planner.TreeChristof_TspOpt import TreeChristofidesOpt
+from path_planner.tsp_ChristofOpt import TreeChristofidesOpt
 
 np.set_printoptions(suppress=True)
 

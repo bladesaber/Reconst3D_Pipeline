@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from path_planner.node_utils import TreeNode
 from path_planner.SpanTreeSearcher import SpanningTreeSearcher
-from path_planner.TreeChristof_TspOpt import TreeChristofidesOpt, ChristofidesOpt
+from path_planner.tsp_ChristofOpt import TreeChristofidesOpt, ChristofidesOpt
 from path_planner.utils import expand_standard_voxel, remove_inner_pcd
 from path_planner.utils import cone_windows
 from path_planner.vis_utils import TreePlainner_3d
