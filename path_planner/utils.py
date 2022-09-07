@@ -522,5 +522,9 @@ def pcd_gaussian_blur(pcd:o3d.geometry.PointCloud, knn=4):
 
     return pcd
 
+### todo ???
+def pcd_gradient_smmoth():
+    pass
+
 if __name__ == '__main__':
     cone_sample_test()
