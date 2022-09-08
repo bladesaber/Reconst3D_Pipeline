@@ -1,0 +1,14 @@
+Remote API github:
+https://github.com/CoppeliaRobotics/zmqRemoteApi#python-client
+
+python:
+    requirment:
+        pip install pyzmq
+        pip install cbor
+
+    export PYTHONPATH=/path/to/zmqRemoteApi/clients/python
+
+Verp:
+https://www.coppeliarobotics.com/helpFiles/en/remoteApiFunctionsPython.htm (Deprecite)
+
+https://www.coppeliarobotics.com/helpFiles/en/zmqRemoteApiOverview.htm
