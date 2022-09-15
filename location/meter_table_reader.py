@@ -2,18 +2,11 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+'''
+如果hsv颜色检测不足够鲁棒性考虑，考虑直接检测出所有数字，然后多个数字的中心点你和一直线，直接使用该直线作为标度尺
+'''
+
 class MeterTable_Reader(object):
-    def __init__(
-            self,
-            background_color=None,
-            label_color=None,
-            pointer_color=None,
-            ticker_color=None
-    ):
-        self.background_color = background_color
-        self.label_color = label_color
-        self.pointer_color = pointer_color
-        self.ticker_color = ticker_color
 
     def color_bank(self, ratio_color):
         length = np.linalg.norm(ratio_color, ord=2)
@@ -196,16 +189,16 @@ class MeterTable_Reader(object):
         hsv = hsv.reshape((-1, 3))
 
         h_bool = self.hsv_sub(hsv[:, 0], hsv_c[0]) < h_thre
-        v_bool = hsv[:, 2]>v_thre
-        s_bool = hsv[:, 1]<s_thre
+        bin_img = (h_bool.reshape((h, w))).astype(np.uint8) * 255
+        # v_bool = hsv[:, 2]>v_thre
+        # s_bool = hsv[:, 1]<s_thre
+        # bin_img = np.bitwise_and(h_bool, v_bool)
+        # bin_img = np.bitwise_and(bin_img, s_bool)
+        # bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
 
-        bin_img = np.bitwise_and(h_bool, v_bool)
-        bin_img = np.bitwise_and(bin_img, s_bool)
-        bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
-
-        # se = np.ones((3, 3), dtype=np.uint8)
-        # bin_img = cv2.erode(bin_img, se, None, (-1, -1), 1)
-        # bin_img = cv2.dilate(bin_img, se, None, (-1, -1), 1)
+        se = np.ones((3, 3), dtype=np.uint8)
+        bin_img = cv2.erode(bin_img, se, None, (-1, -1), 1)
+        bin_img = cv2.dilate(bin_img, se, None, (-1, -1), 1)
 
         # ### --- debug
         # plt.figure('bin')
@@ -284,12 +277,12 @@ class MeterTable_Reader(object):
 
         hsv = hsv.reshape((-1, 3))
         h_bool = self.hsv_sub(hsv[:, 0], hsv_c[0]) < h_thre
-        v_bool = hsv[:, 2] > v_thre
-        s_bool = hsv[:, 1] < s_thre
-
-        bin_img = np.bitwise_and(h_bool, v_bool)
-        bin_img = np.bitwise_and(bin_img, s_bool)
-        bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
+        bin_img = (h_bool.reshape((h, w))).astype(np.uint8) * 255
+        # v_bool = hsv[:, 2] > v_thre
+        # s_bool = hsv[:, 1] < s_thre
+        # bin_img = np.bitwise_and(h_bool, v_bool)
+        # bin_img = np.bitwise_and(bin_img, s_bool)
+        # bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
 
         ### --- debug
         # plt.figure('bin')
@@ -331,7 +324,7 @@ class MeterTable_Reader(object):
         return tickers_dict
 
     ### ------ pointer process
-    def get_pointer_dict(self, img, hsv_c, h_thre=20.0, v_thre=50.0, s_thre=250.0,):
+    def get_pointer_dict(self, img, hsv_c, h_thre=20.0, v_thre=50.0, s_thre=255.0,):
         h, w, c = img.shape
         hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV_FULL)
 
@@ -341,12 +334,14 @@ class MeterTable_Reader(object):
 
         hsv = hsv.reshape((-1, 3))
         h_bool = self.hsv_sub(hsv[:, 0], hsv_c[0]) < h_thre
-        v_bool = hsv[:, 2] > v_thre
-        s_bool = hsv[:, 1] < s_thre
+        bin_img = (h_bool.reshape((h, w))).astype(np.uint8) * 255
+        # v_bool = hsv[:, 2] > v_thre
+        # s_bool = hsv[:, 1] < s_thre
+        # bin_img = np.bitwise_and(h_bool, v_bool)
+        # bin_img = np.bitwise_and(bin_img, s_bool)
+        # bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
 
-        bin_img = np.bitwise_and(h_bool, v_bool)
-        bin_img = np.bitwise_and(bin_img, s_bool)
-        bin_img = (bin_img.reshape((h, w))).astype(np.uint8) * 255
+        plt.show()
 
         num_pointer, pointers_map, pointers_stats, _ = cv2.connectedComponentsWithStats(
             bin_img, connectivity=8
@@ -428,141 +423,14 @@ class MeterTable_Reader(object):
 
         return crop_img
 
-    ### ------
-    def get_pt_vec_pos(self, pt_dict, pt_id):
-        ys, xs = np.where(pt_dict['map']==pt_id)
-        pt_scatters = np.concatenate((
-            xs.reshape((-1, 1)), ys.reshape((-1, 1))
-        ), axis=1)
-        status, info = self.line_ransac_fit(
-            pt_scatters, max_iters=20, search_radius=0.2, inline_thre=0.1, contain_ratio=0.9
-        )
-        if status:
-            vec, pos, _, _ = info
-            return True, (vec, pos)
-        else:
-            return False, None
-
-    def get_ticker_vec_pos(self, tcks_dict, tck_ids):
-        tck_vecs, tck_poses, tck_lengths = [], [], []
-        for tck_id in tck_ids:
-            ys, xs = np.where(tcks_dict['map'] == tck_id)
-            tck_scatters = np.concatenate((
-                xs.reshape((-1, 1)), ys.reshape((-1, 1))
-            ), axis=1)
-            status, info = self.line_ransac_fit(
-                tck_scatters, max_iters=20, search_radius=0.2, inline_thre=0.1, contain_ratio=0.9
-            )
-            if status:
-                vec, pos, length, _ = info
-                tck_vecs.append(vec)
-                tck_poses.append(pos)
-                tck_lengths.append(length)
-
-        return tck_vecs, tck_poses, tck_lengths
-
-    def read_value(self, img):
-        # area_dict = self.get_areas_dict(
-        #     img=img, area_c=np.array([90, 150, 210]),
-        #     ratio_thre=0.1, color_thre=0.1
-        # )
-        tcks_dict = self.get_tickers_dict(
-            img=img, ticker_c=np.array([250, 250, 30]),
-            ratio_thre=0.2, color_thre=30, tck_hw_ratio=0.05
-        )
-        # pts_dict = self.get_pointer_dict(
-        #     img=img, pointer_c=np.array([200, 20, 20]),
-        #     ratio_thre=0.1, color_thre=0.1, pt_hw_ratio=0.05
-        # )
-        # labels_dict = self.get_label_dict(
-        #     img=img, label_c=np.array([1, 1, 1]),
-        #     ratio_thre=0.1, color_thre=0.1,
-        # )
-
-        # for tid in range(area_dict['ids'].shape[0]):
-        #     area_xy = area_dict['xys'][tid, :]
-        #
-        #     select_bool = self.area_contain_objs(area_xy, pts_dict['xys'])
-        #     pt_id = pts_dict['ids'][select_bool]
-        #     if pt_id.shape[0]!=1:
-        #         continue
-        #
-        #     status, info = self.get_pt_vec_pos(pts_dict, pt_id)
-        #     if not status:
-        #         continue
-        #     pt_vec, pt_pos = info
-        #
-        #     select_bool = self.area_contain_objs(area_xy, labels_dict['xys'])
-        #     label_xys = labels_dict['xys'][select_bool]
-        #     label_ids = labels_dict['ids'][select_bool]
-        #     label_centers = labels_dict['center'][select_bool]
-        #     if label_ids.shape[0] == 0:
-        #         continue
-        #
-        #     select_bool = self.area_contain_objs(area_xy, tcks_dict['xys'])
-        #     tck_ids = tcks_dict['ids'][select_bool]
-        #     if tck_ids.shape[0]==0:
-        #         continue
-        #
-        #     tck_vecs, tck_poses, tck_lengths = self.get_ticker_vec_pos(tcks_dict, tck_ids)
-        #     if len(tck_vecs)==0:
-        #         continue
-        #
-        #     tck_cells = {}
-        #     for tid in range(label_xys.shape[0]):
-        #         ocr_xmin, ocr_ymin, ocr_xmax, ocr_ymax = label_xys[tid]
-        #         ocr_id = label_ids[tid]
-        #
-        #         ocr_rgb = img[ocr_ymin:ocr_ymax, ocr_xmin:ocr_xmax, :]
-        #         ocr_bin = np.zeros(labels_dict['map'].shape, dtype=np.uint8)
-        #         ys, xs = np.where(labels_dict['map'] == ocr_id)
-        #         ocr_bin[ys, xs] = 255
-        #         ocr_bin = ocr_bin[ocr_ymin:ocr_ymax, ocr_xmin:ocr_xmax, :]
-        #
-        #         ocr_rgb = self.label_rot(ocr_rgb, ocr_bin)
-        #         status, label = self.label_ocr(ocr_rgb)
-        #         if status:
-        #             lab_center = label_centers[tid]
-        #             lab_dists = self.point_to_lines(lab_center, tck_vecs, tck_poses)
-        #             tck_id = np.argmin(lab_dists)
-        #             if lab_dists[tck_id] < tck_lengths[tck_id] * 0.1:
-        #                 if tck_id not in tck_cells.keys():
-        #                     tck_cells[tck_id] = {
-        #                         'pos':tck_poses[tck_id],
-        #                         'vec':tck_vecs[tck_id],
-        #                         'label':[label],
-        #                         'label_pos':[lab_center]
-        #                     }
-        #                 else:
-        #                     tck_cells[tck_id]['label'].append(label)
-        #                     tck_cells[tck_id]['label_pos'].append(lab_center)
-        #
-        #     if len(tck_cells)==0:
-        #         continue
-        #
-        #     ### todo label to number
-        #
-        #     pt_dists = self.point_to_lines(pt_pos, tck_vecs, tck_poses)
-        #     ref_ids = np.argsort(pt_dists)[:2]
-        #     ref_dists = pt_dists[ref_ids]
-        #
-        #     tck_1 = tck_cells[ref_ids[0]]
-        #     tck_2 = tck_cells[ref_ids[1]]
-        #     tick_dist = self.points_to_line(
-        #         np.array([tck_1['pos']]), tck_2['vec'], tck_2['pos']
-        #     )
-        #     unit_dist = (tck_2['number'] - tck_1['number'])/np.abs(tick_dist)
-        #
-        #     cosin_theta = np.sum((pt_pos - tck_1['pos']) * (tck_2['pos'] - tck_1['pos']))
-        #     if cosin_theta>0:
-        #         value = tck_1['number'] + unit_dist * ref_dists[0]
-        #     else:
-        #         value = tck_1['number'] - unit_dist * ref_dists[0]
-        #
-        #     print(value)
-
     def test(self, img):
         print('[DEBUG]: Shape: ', img.shape)
+
+        # plt.figure('rgb')
+        # plt.imshow(img)
+        # plt.figure('hsv')
+        # plt.imshow(cv2.cvtColor(img, cv2.COLOR_RGB2HSV_FULL))
+        # plt.show()
 
         area_hsv = self.rgb2hsv(np.array([90, 150, 210], dtype=np.uint8))
         ticker_hsv = self.rgb2hsv(np.array([250, 250, 5], dtype=np.uint8))
@@ -607,7 +475,7 @@ class MeterTable_Reader(object):
             if status:
                 pt_vec, pt_pos, pt_length, pt_begin, pt_end, _ = info
 
-                # cv2.line(area_img, pt_begin.astype(np.int64), pt_end.astype(np.int64), (255, 255, 0))
+                cv2.line(area_img, pt_begin.astype(np.int64), pt_end.astype(np.int64), (255, 255, 0))
                 cv2.circle(area_img, (int(pt_pos[0]), int(pt_pos[1])), 1, (255, 0, 0), 2, 8, 0)
 
             else:
@@ -667,7 +535,7 @@ class MeterTable_Reader(object):
             plt.show()
 
 def main():
-    img = cv2.imread('/home/quan/Desktop/company/Reconst3D_Pipeline/location/sample.png')
+    img = cv2.imread('/home/psdz/HDD/quan/Reconst3D_Pipeline/location/test.png')
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     # cv2.imshow('debug', img)
     # cv2.waitKey(0)

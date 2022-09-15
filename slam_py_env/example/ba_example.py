@@ -249,7 +249,7 @@ def test_ba(POSE_NOISE=0.13, POINT_NOISE=0.1):
     plt.show()
 
 def create_pose_opt_question(POSE_NOISE=0.1):
-    points_w = np.random.uniform(0.0, 1.0, (300, 3))
+    points_w = np.random.uniform(0.0, 3.0, (1000, 3))
     points_w[:, 0] = points_w[:, 0]
     points_w[:, 1] = points_w[:, 1]
     points_w[:, 2] = points_w[:, 2] + 1.0
@@ -263,8 +263,12 @@ def create_pose_opt_question(POSE_NOISE=0.1):
 
     tcw = np.array([[-random.uniform(0.3, 0.7), -random.uniform(0.3, 0.7), 0.0]])
     Rcw = eulerAngles_to_rotationMat_scipy(
-        [random.uniform(0.0, 10.0), -random.uniform(0.0, 10.0), 0.0], degress=True
+        [random.uniform(0.0, 30.0), -random.uniform(0.0, 30.0), 0.0], degress=True
     )
+    # Rcw = eulerAngles_to_rotationMat_scipy(
+    #     [45.0, -30.0, 0.0], degress=True
+    # )
+
     tcw = (Rcw.dot(tcw.T)).T
 
     Tcw = np.identity(4)
@@ -275,6 +279,9 @@ def create_pose_opt_question(POSE_NOISE=0.1):
     # ### debug
     # fig = plt.figure()
     # ax = fig.gca(projection="3d")
+    # ax.set_xlim3d([-0.0, 1.0])
+    # ax.set_ylim3d([-0.0, 1.0])
+    # ax.set_zlim3d([-0.0, 1.0])
     # ax.set_box_aspect((1, 1, 1))
     # plot_camera_axis(ax, Camera(K=K, Twc=Twc))
     # plot_camera_axis(ax, Camera(K=K, Twc=np.identity(4)))
@@ -369,5 +376,7 @@ def test_pose_opt(POSE_NOISE=0.1):
 if __name__ == '__main__':
     # test_ba()
     # test_pose_opt()
+
+    create_pose_opt_question(0.1)
 
     pass
