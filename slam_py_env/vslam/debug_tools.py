@@ -5,40 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from slam_py_env.vslam.utils import Camera
-from slam_py_env.vslam.vo_orb import ORBVO_Simple
-
-class DataLoader(object):
-    def load(self, dir):
-        self.dir = dir
-        paths = os.listdir(dir)
-
-        self.files = []
-        for path in paths:
-            path = path.split('.')[0]
-            path = path.split('_')[1]
-            if not path.isnumeric():
-                raise ValueError
-
-            self.files.append(int(path))
-
-        self.files = sorted(self.files)
-        self.file_id = 0
-        self.num = len(self.files)
-
-    def get_rgb(self):
-        if self.file_id < self.num:
-            idx = self.files[self.file_id]
-            self.file_id += 1
-
-            path = os.path.join(self.dir, 'img_%.6d.png'%(idx))
-            print('[DEBUG]: Loading Image: %s'%'img_%.6d.png'%(idx))
-            img = cv2.imread(path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-            return True, img
-
-        else:
-            return False, None
+from slam_py_env.vslam.vo_orb import ORBVO_MONO_Simple
+from slam_py_env.vslam.dataloader import KITTILoader
 
 class MapStepVisulizer(object):
     def __init__(self):
@@ -104,9 +72,6 @@ class MapStepVisulizer(object):
             from_id = positions.shape[0] - 2
             to_id = positions.shape[0] - 1
 
-            print(positions)
-            print(from_id, to_id)
-
             colors = np.asarray(self.path.colors).copy()
             colors = np.concatenate(
                 [colors, np.array([[1.0, 0.0, 1.0]])], axis=0
@@ -147,40 +112,34 @@ class MapStepVisulizer(object):
     #         self.vis.update_geometry(self.map_points)
 
 def test_open3d():
-    dataloader = DataLoader()
-    dataloader.load('/home/psdz/HDD/quan/outdoor_street/images')
+    dataloader = KITTILoader(
+        dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
+        gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
+        K=None
+    )
 
-    K = np.array([
-        [501.95, 0.,     319.83],
-        [0.,     502.37, 243.2],
-        [0.,     0.,     1.]
-    ])
-    camera = Camera(K=K)
-    vo = ORBVO_Simple(camera=camera)
+    camera = Camera(K=dataloader.K)
+    vo = ORBVO_MONO_Simple(camera=camera)
 
     class Visulizer(MapStepVisulizer):
         def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
-            status, img = dataloader.get_rgb()
+
+            status, (img, Twc_gt) = dataloader.get_rgb()
+            Tcw_gt = np.linalg.inv(Twc_gt)
+            norm_length = np.linalg.norm(Tcw_gt[:3, 3], ord=2)
+
             if status:
-                info = vo.step(img)
+                info = vo.step(img, norm_length)
                 frame = info[0]
 
-                if frame is not None:
-                    self.update_camera(frame.Tcw, vo.camera)
-                    self.update_path(frame.Ow)
+                print('[DEBUG]: GT Tcw: \n', Tcw_gt)
+                print('[DEBUG]: PRED Tcw: \n', frame.Tcw)
 
-                    # map_Pws = []
-                    # for key in vo.map_points.keys():
-                    #     map_point = vo.map_points[key]
-                    #     map_Pws.append(map_point.Pw)
-                    # map_Pws = np.array(map_Pws)
-                    # self.update_map_points(map_Pws, add=False)
+                self.update_camera(frame.Tcw, vo.camera)
+                self.update_path(frame.Ow)
 
-                    show_img = info[1]
-                    cv2.imshow('debug', show_img)
-
-                else:
-                    cv2.imshow('debug', img)
+                show_img = info[1]
+                cv2.imshow('debug', show_img)
 
                 cv2.waitKey(1)
 
@@ -190,25 +149,25 @@ def test_open3d():
     vis = Visulizer()
 
 def test_run():
-    dataloader = DataLoader()
-    dataloader.load('/home/psdz/HDD/quan/outdoor_street/images')
+    dataloader = KITTILoader(
+        dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
+        gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
+        K=None
+    )
 
-    K = np.array([
-        [501.95, 0., 319.83],
-        [0., 502.37, 243.2],
-        [0., 0., 1.]
-    ])
-    camera = Camera(K=K)
-
-    vo = ORBVO_Simple(camera=camera)
+    camera = Camera(K=dataloader.K)
+    vo = ORBVO_MONO_Simple(camera=camera)
 
     for _ in range(3):
-        status, img = dataloader.get_rgb()
-        if status:
-            info = vo.step(img)
+        status, (img, Twc_gt) = dataloader.get_rgb()
+        Tcw_gt = np.linalg.inv(Twc_gt)
+        norm_length = np.linalg.norm(Tcw_gt[:3, 3], ord=2)
 
-            # show_img = info[1]
+        frame, show_img = vo.step(img, norm_length)
+
+        # print('[DEBUG]: GT Tcw: \n', Tcw_gt)
+        # print('[DEBUG]: PRED Tcw: \n', frame.Tcw)
 
 if __name__ == '__main__':
-    test_open3d()
-    # test_run()
+    # test_open3d()
+    test_run()

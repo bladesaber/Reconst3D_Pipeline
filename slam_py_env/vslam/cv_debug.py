@@ -8,6 +8,7 @@ from slam_py_env.example.utils import eulerAngles_to_rotationMat_scipy
 from slam_py_env.vslam.utils import draw_kps, draw_matches, draw_matches_check
 from slam_py_env.vslam.extractor import ORBExtractor, SIFTExtractor
 from slam_py_env.vslam.utils import EpipolarComputer
+from slam_py_env.vslam.dataloader import KITTILoader
 
 np.set_printoptions(suppress=True)
 
@@ -279,13 +280,23 @@ def test_pose_estimate_3d2d():
 
 def test_img_2d2d():
     K = np.array([
-        [501.95, 0., 319.83],
-        [0., 502.37, 243.2],
-        [0., 0., 1.]
+        [718.856, 0.,      607.1928],
+        [0.,      718.856, 185.2157],
+        [0.,      0.,      1.]
     ])
+    data_loader = KITTILoader(
+        dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
+        gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
+        K=K
+    )
+    _, (img0, Twc0_gt) = data_loader.get_rgb()
+    _, (img1, Twc1_gt) = data_loader.get_rgb()
 
-    img0 = cv2.imread('/home/quan/Desktop/tempary/slam_ws/outdoor_street/images/img_000001.png')
-    img1 = cv2.imread('/home/quan/Desktop/tempary/slam_ws/outdoor_street/images/img_000002.png')
+    Tc1w_gt = np.linalg.inv(Twc1_gt)
+    Tc1c0_gt = Tc1w_gt.dot(Twc0_gt)
+    norm_length = np.linalg.norm(Tc1c0_gt[:3, 3], ord=2)
+
+    ### ------------------------------------------------
     gray0 = cv2.cvtColor(img0, cv2.COLOR_BGRA2GRAY)
     gray1 = cv2.cvtColor(img1, cv2.COLOR_BGRA2GRAY)
 
@@ -303,33 +314,49 @@ def test_img_2d2d():
     ### -------------------------------------
     epipoler = EpipolarComputer()
 
-    fig = plt.figure()
-    ax = fig.gca(projection="3d")
-    for thre in np.arange(0.1, 0.4, 0.05):
-        (midxs0, midxs1), _ = extractor.match(
-            descs0, descs1, thre=0.3
-        )
-        uv0 = kps0[midxs0]
-        uv1 = kps1[midxs1]
-
-        status, fun_mat, mask, info = epipoler.ransac_fit_FundamentalMat(
-            uv0, uv1, max_iters=100, thre=0.01,
-            max_error_thre=1.0, target_error_thre=0.01, contain_ratio=0.99
-        )
-        if status:
-            E = epipoler.compute_EssentialMat(K, fun_mat)
-            Tc1c0, mask, _ = epipoler.recoverPose(E, uv0[mask], uv1[mask], K)
-
-            camera = Camera(K)
-            camera.plot_camera(ax, Tcw=Tc1c0)
-        else:
-            print('[DEBUG]: Fail')
-
-    plt.show()
+    ### todo it will cause a very big problem here
+    (midxs0, midxs1), _ = extractor.match(
+        descs0, descs1, thre=0.5
+    )
+    uv0 = kps0[midxs0]
+    uv1 = kps1[midxs1]
 
     # show_img = draw_matches(img0, kps0, midxs0, img1, kps1, midxs1)
     # cv2.imshow('d', show_img)
     # cv2.waitKey(0)
+
+    # ### ------ test custom code
+    # status, fun_mat, mask, info = epipoler.ransac_fit_FundamentalMat(
+    #     uv0, uv1, max_iters=1000, thre=0.1,
+    #     max_error_thre=1.0, target_error_thre=0.01, contain_ratio=0.99
+    # )
+    # if status:
+    #     E = epipoler.compute_EssentialMat(K, fun_mat)
+    #     Tc1c0, mask, info = epipoler.recoverPose(E, uv0[mask], uv1[mask], K)
+    #     contain_ratio, score = info
+    #     Tc1c0[:3, 3] = Tc1c0[:3, 3] * norm_length
+    #
+    #     print('[DEBUG]: Twc0_gt: \n', Twc0_gt)
+    #     print('[DEBUG]: Twc1_gt: \n', Twc1_gt)
+    #     print('[DEBUG]: Tc0c1_gt: \n', np.linalg.inv(Tc1c0_gt))
+    #     print('[DEBUG]: Tc1c0_gt: \n', Tc1c0_gt)
+    #     print('[DEBUG]: Tc1c0_pred: \n', Tc1c0)
+    #     print('[DEBUG]: Contain Ratio: %.3f Score:%.f' % (contain_ratio, score))
+    #
+    # else:
+    #     print('[DEBUG]: Fail')
+
+    ### ------test cv code
+    E, mask, contain_ratio = epipoler.compute_Essential_cv(K, uv0, uv1, threshold=1.0)
+    Tc1c0, _ = epipoler.recoverPose_cv(E, uv0[mask], uv1[mask], K)
+    Tc1c0[:3, 3] = Tc1c0[:3, 3] * norm_length
+
+    print('[DEBUG]: Twc0_gt: \n', Twc0_gt)
+    print('[DEBUG]: Twc1_gt: \n', Twc1_gt)
+    print('[DEBUG]: Tc0c1_gt: \n', np.linalg.inv(Tc1c0_gt))
+    print('[DEBUG]: Tc1c0_gt: \n', Tc1c0_gt)
+    print('[DEBUG]: Tc1c0_pred: \n', Tc1c0)
+    print('[DEBUG]: Contain Ratio: %.3f' % (contain_ratio))
 
 def test_pose_estimate_2d2d_custom():
     points_w = np.random.uniform(0.0, 1.0, (500, 3))
@@ -407,7 +434,8 @@ def test_pose_estimate_2d2d_custom():
     )
     if status:
         E = epipoler.compute_EssentialMat(K[:3, :3], fun_mat)
-        Tc1c0, mask, _ = epipoler.recoverPose(E, uvs0[mask], uvs1[mask], K[:3, :3])
+        Tc1c0, mask, info = epipoler.recoverPose(E, uvs0[mask], uvs1[mask], K[:3, :3])
+        contain_ratio, score = info
 
         Tc0c1_gt = Tcw0.dot(np.linalg.inv(Tcw1))
         Tc1c0_gt = Tcw1.dot(np.linalg.inv(Tcw0))
@@ -418,6 +446,7 @@ def test_pose_estimate_2d2d_custom():
         print('[DEBUG]: Tc0c1_gt: \n', Tc0c1_gt)
         print('[DEBUG]: Tc1c0_gt: \n', Tc1c0_gt)
         print('[DEBUG]: Tc1c0: \n', Tc1c0)
+        print('[DEBUG]: Contain Ratio: %.3f Score:%.f' % (contain_ratio, score))
 
     else:
         print('[DEBUG]: Fail Test')
@@ -426,8 +455,8 @@ if __name__ == '__main__':
     # test_pose_estimate_2d2d_cv()
     # test_triangulate_2d2d()
     # test_pose_estimate_3d2d()
-    test_pose_estimate_2d2d_custom()
+    # test_pose_estimate_2d2d_custom()
 
-    # test_img_2d2d()
+    test_img_2d2d()
 
     pass

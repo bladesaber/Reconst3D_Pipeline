@@ -125,37 +125,10 @@ def draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1):
         if key == ord('q'):
             break
 
-def compute_Essential_Rt_cv(K, uvs0, uvs1, threshold=0.1):
-    ### todo be careful opencv findEssentialMat is non stable
-    E, mask = cv2.findEssentialMat(
-        uvs0, uvs1, K,
-        prob=0.9999, method=cv2.RANSAC, mask=None, threshold=threshold
-    )
-    mask = mask.reshape(-1) > 0.0
-
-    kp0_pts = uvs0[mask]
-    kp1_pts = uvs1[mask]
-
-    retval, E, R, t, _ = cv2.recoverPose(
-        E=E, points1=kp0_pts, points2=kp1_pts, cameraMatrix1=K, cameraMatrix2=K,
-        distCoeffs1=None, distCoeffs2=None
-    )
-
-    Tc1c0 = np.eye(4)
-    Tc1c0[:3, :3] = R
-    Tc1c0[:3, 3] = t.reshape(-1)
-
-    return mask, Tc1c0
-
-def compute_Fundamental_cv(uv0, uv1, method=cv2.FM_RANSAC):
-    ### todo be careful opencv findFundamental is non stable
-    F, mask = cv2.findFundamentalMat(uv0, uv1, method)
-    mask = mask.reshape(-1) > 0
-    return F, mask
-
 class EpipolarComputer(object):
     '''
     todo 如果没平移,计算基础矩阵的方法将失效,需要计算单应矩阵代替.ORBSlam2
+    todo 对极几何的位姿估计太不稳定了,只能放弃了,我写的方法也相当不稳定
     '''
 
     def findFundamentalMat(self, uv0_homo, uv1_homo, thre=0.001):
@@ -272,7 +245,10 @@ class EpipolarComputer(object):
             Pws = cv2.triangulatePoints(P_0, P_1, uv0, uv1).T
             Pws = Pws[:, :3] / Pws[:, 3:4]
 
-            depth, mask = self.project_Pw2uvd(K, Tcw[:3, :], Pws)
+            depth0, mask0 = self.project_Pw2uvd(K, Tw[:3, :], Pws)
+            depth1, mask1 = self.project_Pw2uvd(K, Tcw[:3, :], Pws)
+
+            mask = np.bitwise_and(mask0, mask1)
             score = mask.sum()
 
             if score>best_score:
@@ -292,3 +268,68 @@ class EpipolarComputer(object):
         mask = depth > 0.0
 
         return depth, mask
+
+    def compute_Essential_cv(self, K, uvs0, uvs1, threshold=1.0):
+        ### todo be careful opencv findEssentialMat is non stable
+
+        num = float(uvs0.shape[0])
+        E, mask = cv2.findEssentialMat(
+            uvs0, uvs1, K,
+            prob=0.9999, method=cv2.RANSAC, mask=None, threshold=threshold
+        )
+        mask = mask.reshape(-1) > 0.0
+
+        ratio = mask.sum()/num
+
+        return E, mask, ratio
+
+    def compute_Fundamental_cv(self, uv0, uv1, method=cv2.FM_RANSAC):
+        ### todo be careful opencv findFundamental is non stable
+        F, mask = cv2.findFundamentalMat(uv0, uv1, method)
+        mask = mask.reshape(-1) > 0
+        return F, mask
+
+    def recoverPose_cv(self, essentialMat, uv0, uv1, K):
+        retval, essentialMat, R, t, mask = cv2.recoverPose(
+            E=essentialMat, points1=uv0, points2=uv1, cameraMatrix1=K, cameraMatrix2=K,
+            distCoeffs1=None, distCoeffs2=None
+        )
+        mask = mask.reshape(-1) > 0
+
+        Tc1c0 = np.eye(4)
+        Tc1c0[:3, :3] = R
+        Tc1c0[:3, 3] = t.reshape(-1)
+
+        return Tc1c0, mask
+
+    def triangulate_2d2d(self, K, Tcw0, Tcw1, uvs0, uvs1):
+        uvs0 = uvs0[:, np.newaxis, :]
+        uvs1 = uvs1[:, np.newaxis, :]
+        P_0 = K.dot(Tcw0[:3, :])
+        P_1 = K.dot(Tcw1[:3, :])
+
+        Pws = cv2.triangulatePoints(P_0, P_1, uvs0, uvs1).T
+        Pws = Pws[:, :3] / Pws[:, 3:4]
+
+        return Pws
+
+    def compute_pose_3d2d(self, K, Pws, uvs, max_err_reproj=2.0):
+        Pws = Pws[:, np.newaxis, :]
+        uvs = uvs[:, np.newaxis, :]
+
+        mask = np.zeros(Pws.shape[0], dtype=np.bool)
+        retval, rvec, t, mask_ids = cv2.solvePnPRansac(
+            Pws, uvs,
+            K, None, reprojectionError=max_err_reproj,
+            iterationsCount=10000,
+            confidence=0.9999
+        )
+        mask_ids = mask_ids.reshape(-1)
+        mask[mask_ids] = True
+        R, _ = cv2.Rodrigues(rvec)
+
+        Tcw = np.eye(4)
+        Tcw[:3, :3] = R
+        Tcw[:3, 3] = t.reshape(-1)
+
+        return mask, Tcw
