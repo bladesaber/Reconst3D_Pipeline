@@ -26,6 +26,39 @@ class Camera(object):
         uv = uv[:, :2]
         return uv, depth
 
+    def project_uvd2Pc(self, uvd):
+        uvd[:, :2] = uvd[:, :2] * uvd[:, 2:3]
+        Kv = np.linalg.inv(self.K)
+        Pc = (Kv.dot(uvd.T)).T
+        return Pc
+
+    def project_rgbd2Pc(self, rgb_img:np.array, depth_img:np.array, depth_max, depth_min):
+        h, w, c = rgb_img.shape
+        xs = np.arange(0, w, 1).reshape((1, -1))
+        xs = np.tile(xs, (h, 1))
+        ys = np.arange(0, h, 1).reshape((-1, 1))
+        ys = np.tile(ys, (1, w))
+        uv_img = np.concatenate((xs[..., np.newaxis], ys[..., np.newaxis]), axis=-1)
+
+        uv_img = uv_img.reshape((-1, 2))
+        depth_img = depth_img.reshape((-1, 1))
+        rgb_Pc = rgb_img.reshape((-1, 3))
+
+        valid_bool = ~np.isnan(depth_img.reshape(-1))
+        valid_bool1 = depth_img.reshape(-1) < depth_max
+        valid_bool2 = depth_img.reshape(-1) > depth_min
+        valid_bool = np.bitwise_and(valid_bool, valid_bool1)
+        valid_bool = np.bitwise_and(valid_bool, valid_bool2)
+
+        depth_img = depth_img[valid_bool]
+        rgb_Pc = rgb_Pc[valid_bool]
+        uv_img = uv_img[valid_bool]
+
+        uvd = np.concatenate((uv_img, depth_img), axis=1)
+        Pc = self.project_uvd2Pc(uvd)
+
+        return Pc, rgb_Pc
+
     def draw_camera_matplotlib(self, scale):
         a = 0.5 * np.array([[-2, 1.5, 4]]) * scale
         up1 = 0.5 * np.array([[0, 1.5, 4]]) * scale
@@ -124,6 +157,27 @@ def draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1):
         key = cv2.waitKey(0)
         if key == ord('q'):
             break
+
+def draw_kps_match(img0, kps0, midxs0, img1, kps1, midxs1):
+    w_shift = img0.shape[1]
+    img_concat = np.concatenate((img0, img1), axis=1)
+
+    for idx0, kp0 in enumerate(kps0):
+        x0, y0 = int(kp0[0]), int(kp0[1])
+        if idx0 in midxs0:
+            cv2.circle(img_concat, (x0, y0), radius=3, color=(255, 0, 0), thickness=1)
+        # else:
+        #     cv2.circle(img_concat, (x0, y0), radius=3, color=(0, 255, 0), thickness=1)
+
+    for idx1, kp1 in enumerate(kps1):
+        x1, y1 = int(kp1[0]), int(kp1[1])
+        x1 = x1 + w_shift
+        if idx1 in midxs1:
+            cv2.circle(img_concat, (x1, y1), radius=3, color=(255, 0, 0), thickness=1)
+        # else:
+        #     cv2.circle(img_concat, (x1, y1), radius=3, color=(0, 255, 0), thickness=1)
+
+    return img_concat
 
 class EpipolarComputer(object):
     '''

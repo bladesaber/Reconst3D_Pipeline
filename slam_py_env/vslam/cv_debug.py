@@ -289,12 +289,15 @@ def test_img_2d2d():
         gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
         K=K
     )
+    data_loader.pt = 1
     _, (img0, Twc0_gt) = data_loader.get_rgb()
+    data_loader.pt = 2
     _, (img1, Twc1_gt) = data_loader.get_rgb()
 
     Tc1w_gt = np.linalg.inv(Twc1_gt)
     Tc1c0_gt = Tc1w_gt.dot(Twc0_gt)
     norm_length = np.linalg.norm(Tc1c0_gt[:3, 3], ord=2)
+    print('[DEBUG]: Norm Length: ', norm_length)
 
     ### ------------------------------------------------
     gray0 = cv2.cvtColor(img0, cv2.COLOR_BGRA2GRAY)
@@ -316,7 +319,7 @@ def test_img_2d2d():
 
     ### todo it will cause a very big problem here
     (midxs0, midxs1), _ = extractor.match(
-        descs0, descs1, thre=0.5
+        descs0, descs1, thre=0.8
     )
     uv0 = kps0[midxs0]
     uv1 = kps1[midxs1]

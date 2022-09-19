@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from slam_py_env.vslam.utils import Camera
-from slam_py_env.vslam.vo_orb import ORBVO_MONO_Simple
+from slam_py_env.vslam.vo_orb import ORBVO_MONO_Continue, ORBVO_MONO_Independent
 from slam_py_env.vslam.dataloader import KITTILoader
 
 class MapStepVisulizer(object):
@@ -14,8 +14,8 @@ class MapStepVisulizer(object):
 
         self.map_points = o3d.geometry.PointCloud()
 
-        self.path = o3d.geometry.LineSet()
-        self.cameras = o3d.geometry.LineSet()
+        self.path_gt = o3d.geometry.LineSet()
+        self.path_pred = o3d.geometry.LineSet()
 
         self.vis = o3d.visualization.VisualizerWithKeyCallback()
         self.vis.create_window(height=720, width=960)
@@ -24,67 +24,64 @@ class MapStepVisulizer(object):
         # opt.background_color = np.asarray([0, 0, 0])
         opt.line_width = 100.0
 
-        axis_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=np.array([0., 0., 0.]))
+        axis_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3, origin=np.array([0., 0., 0.]))
         self.vis.add_geometry(axis_mesh)
 
-        self.vis.add_geometry(self.cameras)
-        self.vis.add_geometry(self.path)
+        self.vis.add_geometry(self.path_gt)
+        self.vis.add_geometry(self.path_pred)
         # self.vis.add_geometry(self.map_points)
 
         self.vis.register_key_callback(ord(','), self.step_visulize)
+        # self.vis.register_key_callback(ord('.'), self.reset_viewpoint)
 
         self.vis.run()
         self.vis.destroy_window()
 
+    def reset_viewpoint(self, vis: o3d.visualization.VisualizerWithKeyCallback):
+        self.vis.reset_view_point(True)
+
     def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
         pass
 
-    def update_camera(self, Tcw, camera:Camera):
-        cameras_pcd = np.asarray(self.cameras.points)
-        cameras_link = np.asarray(self.cameras.lines)
-        cameras_color = np.asarray(self.cameras.colors)
-
-        shift = cameras_pcd.shape[0]
-        Pc, link = camera.draw_camera_open3d(scale=0.3, shift=shift)
+    def add_camera(self, Tcw, camera:Camera, color):
+        Pc, link = camera.draw_camera_open3d(scale=0.3, shift=0)
         Pw = camera.project_Pc2Pw(Tcw, Pc)
+        cameras_color = np.tile(color.reshape((1, 3)), (link.shape[0], 1))
 
-        cameras_pcd = np.concatenate((cameras_pcd, Pw), axis=0)
-        cameras_link = np.concatenate((cameras_link, link), axis=0)
-        cameras_color = np.concatenate((
-            cameras_color, np.tile(np.array([[0.0, 0.0, 1.0]]), (link.shape[0], 1))
-        ), axis=0)
+        camera = o3d.geometry.LineSet()
+        camera.points = o3d.utility.Vector3dVector(Pw)
+        camera.lines = o3d.utility.Vector2iVector(link)
+        camera.colors = o3d.utility.Vector3dVector(cameras_color)
 
-        self.cameras.points = o3d.utility.Vector3dVector(cameras_pcd)
-        self.cameras.lines = o3d.utility.Vector2iVector(cameras_link)
-        self.cameras.colors = o3d.utility.Vector3dVector(cameras_color)
+        self.vis.add_geometry(camera)
 
-        self.vis.update_geometry(self.cameras)
+        # view_control: o3d.visualization.ViewControl = self.vis.get_view_control()
 
-    def update_path(self, Ow):
-        positions = np.asarray(self.path.points).copy()
+    def update_path(self, Ow, path_o3d):
+        positions = np.asarray(path_o3d.points).copy()
         positions = np.concatenate(
             (positions, Ow.reshape((1, 3))), axis=0
         )
 
-        self.path.points = o3d.utility.Vector3dVector(positions)
+        path_o3d.points = o3d.utility.Vector3dVector(positions)
 
         if positions.shape[0]>1:
             from_id = positions.shape[0] - 2
             to_id = positions.shape[0] - 1
 
-            colors = np.asarray(self.path.colors).copy()
+            colors = np.asarray(path_o3d.colors).copy()
             colors = np.concatenate(
                 [colors, np.array([[1.0, 0.0, 1.0]])], axis=0
             )
-            self.path.colors = o3d.utility.Vector3dVector(colors)
+            path_o3d.colors = o3d.utility.Vector3dVector(colors)
 
-            lines = np.asarray(self.path.lines).copy()
+            lines = np.asarray(path_o3d.lines).copy()
             lines = np.concatenate(
                 [lines, np.array([[from_id, to_id]])], axis=0
             )
-            self.path.lines = o3d.utility.Vector2iVector(lines)
+            path_o3d.lines = o3d.utility.Vector2iVector(lines)
 
-        self.vis.update_geometry(self.path)
+        self.vis.update_geometry(path_o3d)
 
     # def update_map_points(self, map_points, add=False):
     #     if map_points.shape[0]>0:
@@ -111,7 +108,7 @@ class MapStepVisulizer(object):
     #
     #         self.vis.update_geometry(self.map_points)
 
-def test_open3d():
+def test_open3d_1():
     dataloader = KITTILoader(
         dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
         gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
@@ -119,7 +116,7 @@ def test_open3d():
     )
 
     camera = Camera(K=dataloader.K)
-    vo = ORBVO_MONO_Simple(camera=camera)
+    vo = ORBVO_MONO_Continue(camera=camera)
 
     class Visulizer(MapStepVisulizer):
         def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
@@ -135,8 +132,10 @@ def test_open3d():
                 print('[DEBUG]: GT Tcw: \n', Tcw_gt)
                 print('[DEBUG]: PRED Tcw: \n', frame.Tcw)
 
-                self.update_camera(frame.Tcw, vo.camera)
-                self.update_path(frame.Ow)
+                self.add_camera(frame.Tcw, vo.camera, color=np.array([1.0, 0.0, 1.0]))
+                self.add_camera(Tcw_gt, vo.camera, color=np.array([1.0, 0.0, 0.0]))
+                self.update_path(frame.Ow, self.path_pred)
+                self.update_path(Twc_gt[:3, 3], self.path_gt)
 
                 show_img = info[1]
                 cv2.imshow('debug', show_img)
@@ -148,7 +147,7 @@ def test_open3d():
 
     vis = Visulizer()
 
-def test_run():
+def test_open3d_2():
     dataloader = KITTILoader(
         dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
         gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
@@ -156,18 +155,62 @@ def test_run():
     )
 
     camera = Camera(K=dataloader.K)
-    vo = ORBVO_MONO_Simple(camera=camera)
+    vo = ORBVO_MONO_Independent(camera=camera)
 
-    for _ in range(3):
-        status, (img, Twc_gt) = dataloader.get_rgb()
-        Tcw_gt = np.linalg.inv(Twc_gt)
-        norm_length = np.linalg.norm(Tcw_gt[:3, 3], ord=2)
+    class Visulizer(MapStepVisulizer):
+        Twc0_gt = np.eye(4)
 
-        frame, show_img = vo.step(img, norm_length)
+        def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
 
-        # print('[DEBUG]: GT Tcw: \n', Tcw_gt)
-        # print('[DEBUG]: PRED Tcw: \n', frame.Tcw)
+            status, (img, Twc1_gt) = dataloader.get_rgb()
+            Tc1w_gt = np.linalg.inv(Twc1_gt)
+            Tc1c0_gt = Tc1w_gt.dot(self.Twc0_gt)
+            norm_length = np.linalg.norm(Tc1c0_gt[:3, 3], ord=2)
+            self.Twc0_gt = Twc1_gt
+
+            if status:
+                info = vo.step(img, norm_length)
+                frame = info[0]
+
+                print('[DEBUG]: GT Tcw: \n', Tc1w_gt)
+                print('[DEBUG]: PRED Tcw: \n', frame.Tcw)
+
+                self.add_camera(frame.Tcw, vo.camera, color=np.array([1.0, 0.0, 1.0]))
+                self.add_camera(Tc1w_gt, vo.camera, color=np.array([1.0, 0.0, 0.0]))
+                self.update_path(frame.Ow, self.path_pred)
+                self.update_path(Twc1_gt[:3, 3], self.path_gt)
+
+                show_img = info[1]
+                cv2.imshow('debug', show_img)
+
+                cv2.waitKey(1)
+
+            else:
+                print('Finish')
+
+    vis = Visulizer()
+
+# def test_run():
+#     dataloader = KITTILoader(
+#         dir='/home/psdz/HDD/quan/slam_ws/KITTI_sample/images',
+#         gt_path='/home/psdz/HDD/quan/slam_ws/KITTI_sample/poses.txt',
+#         K=None
+#     )
+#
+#     camera = Camera(K=dataloader.K)
+#     vo = ORBVO_MONO_Simple(camera=camera)
+#
+#     for _ in range(20):
+#         status, (img, Twc_gt) = dataloader.get_rgb()
+#         Tcw_gt = np.linalg.inv(Twc_gt)
+#         norm_length = np.linalg.norm(Tcw_gt[:3, 3], ord=2)
+#
+#         frame, show_img = vo.step(img, norm_length)
+#
+#         print('[DEBUG]: GT Twc: \n', Twc_gt)
+#         print('[DEBUG]: PRED Twc: \n', np.linalg.inv(frame.Tcw))
 
 if __name__ == '__main__':
-    # test_open3d()
-    test_run()
+    test_open3d_1()
+    # test_open3d_2()
+    # test_run()

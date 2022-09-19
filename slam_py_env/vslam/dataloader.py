@@ -90,12 +90,12 @@ class KITTILoader(object):
 
 
 class TumLoader(object):
-    def __init__(self, rgb_dir, depth_dir, rgb_list_txt, depth_list_txt, gts_txt):
+    def __init__(self, rgb_dir, depth_dir, rgb_list_txt, depth_list_txt, gts_txt, save_match=False):
         self.rgb_dir = rgb_dir
         self.depth_dir = depth_dir
         self.K = np.array([
-            [525., 0., 319.5],
-            [0., 525., 239.5],
+            [517.3, 0., 318.6],
+            [0., 516.4, 255.31],
             [0., 0., 1.]
         ])
         self.scalingFactor = 5000.0
@@ -108,6 +108,17 @@ class TumLoader(object):
 
         self.gt_dict = self.read_trajectory(gts_txt)
         self.rgb_gt_matches = self.associate(rgb_list, self.gt_dict, offset=0, max_difference=0.02)
+
+        if save_match:
+            match_np = []
+            for idx, (rgb_stamp, depth_stamp) in enumerate(self.rgb_depth_matches):
+                _, gt_stamp = self.rgb_gt_matches[idx]
+                match_np.append(np.array([rgb_stamp, depth_stamp, gt_stamp]))
+
+                print(rgb_stamp, depth_stamp, gt_stamp)
+
+            match_np = np.array(match_np)
+            np.save('/home/psdz/HDD/quan/match1.npy', match_np)
 
     def transform44(self, l):
         quaternion = l[4:8]
@@ -226,14 +237,15 @@ class TumLoader(object):
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
 
         depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-        depth[depth == 0] = np.nan
+        depth = depth.astype(np.float64)
+        depth[depth == 0.0] = np.nan
         depth = depth / self.scalingFactor
 
-        gt_Twc = self.gt_dict[gt_stamp]
+        Twc_gt = self.gt_dict[gt_stamp]
 
         self.pt += 1
 
-        return rgb, depth, gt_Twc
+        return rgb, depth, Twc_gt
 
     def plot_gt_path_xyz(self):
         xyz_poses = []
@@ -250,15 +262,85 @@ class TumLoader(object):
 
         plt.show()
 
+class ICL_NUIM_Loader(object):
+    def __init__(self, association_path, dir, gts_txt):
+        self.association_path = association_path
+        self.dir = dir
+        self.gts_txt = gts_txt
+
+        self.K = np.array([
+            [481.20, 0, 319.50],
+            [0., 480.00, 239.50],
+            [0., 0., 1.]
+        ])
+
+        with open(self.association_path, 'r') as f:
+            match_lines = f.readlines()
+        with open(self.gts_txt, 'r') as f:
+            gt_lines = f.readlines()
+        assert len(match_lines) == len(gt_lines)
+
+        self.matches = []
+        for match_line, gt_line in zip(match_lines, gt_lines):
+            match_line = match_line.strip()
+            gt_line = gt_line.strip()
+
+            _, depth_file, _, rgb_file = match_line.split(' ')
+            gt_line = [float(v) for v in gt_line.split(' ')]
+            Twc = self.transform44(gt_line)
+
+            self.matches.append((depth_file, rgb_file, Twc))
+
+        self.pt = 0
+        self.scalingFactor = 5000.0
+
+    def transform44(self, l):
+        quaternion = l[4:8]
+        r = transform.Rotation(quat=quaternion)
+        r = r.as_matrix()
+        t = l[1:4]
+        T = np.eye(4)
+        T[:3, :3] = r
+        T[:3, 3] = t
+        return T
+
+    def get_rgb(self):
+        depth_file, rgb_file, Twc_gt = self.matches[self.pt]
+        rgb_path = os.path.join(self.dir, rgb_file)
+        depth_path = os.path.join(self.dir, depth_file)
+
+        print('[DEBUG]: Loading File: %s'%rgb_file)
+
+        rgb = cv2.imread(rgb_path)
+        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+
+        depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        depth = depth.astype(np.float64)
+        depth[depth == 0.0] = np.nan
+        depth = depth / self.scalingFactor
+
+        self.pt += 1
+
+        return rgb, depth, Twc_gt
+
 
 if __name__ == '__main__':
     data_loader = TumLoader(
-        rgb_dir='/home/quan/Desktop/tempary/slam_ws/rgbd_dataset_freiburg1_xyz/rgb',
-        depth_dir='/home/quan/Desktop/tempary/slam_ws/rgbd_dataset_freiburg1_xyz/depth',
-        rgb_list_txt='/home/quan/Desktop/tempary/slam_ws/rgbd_dataset_freiburg1_xyz/rgb.txt',
-        depth_list_txt='/home/quan/Desktop/tempary/slam_ws/rgbd_dataset_freiburg1_xyz/depth.txt',
-        gts_txt='/home/quan/Desktop/tempary/slam_ws/rgbd_dataset_freiburg1_xyz/groundtruth.txt'
+        rgb_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb',
+        depth_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth',
+        rgb_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb.txt',
+        depth_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth.txt',
+        gts_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/groundtruth.txt',
+        save_match=True
     )
-    data_loader.plot_gt_path_xyz()
+    # data_loader.plot_gt_path_xyz()
+
+    # data_loader = ICL_NUIM_Loader(
+    #     association_path='/home/psdz/HDD/quan/slam_ws/ICL_NUIM_traj2_frei_png/associations.txt',
+    #     dir='/home/psdz/HDD/quan/slam_ws/ICL_NUIM_traj2_frei_png',
+    #     gts_txt='/home/psdz/HDD/quan/slam_ws/ICL_NUIM_traj2_frei_png/traj2.gt.freiburg'
+    # )
+
+    # rgb, depth, Twc_gt = data_loader.get_rgb()
 
     pass
