@@ -1,3 +1,4 @@
+import time
 import open3d as o3d
 import cv2
 import numpy as np
@@ -9,7 +10,7 @@ from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
 
 
 class TumVisulizer(object):
-    def __init__(self, camera: Camera, dataloader):
+    def __init__(self, camera: Camera, dataloader:TumLoader):
         self.camera = camera
         self.dataloader = dataloader
         self.step_num = 0
@@ -17,6 +18,11 @@ class TumVisulizer(object):
         # self.scence_pcd = o3d.geometry.PointCloud()
         self.scence_df = pd.DataFrame(columns=['x', 'y', 'z', 'r', 'g', 'b'])
         self.path_gt = o3d.geometry.LineSet()
+
+        self.intrisic = o3d.camera.PinholeCameraIntrinsic()
+        self.intrisic.width = 640
+        self.intrisic.height = 480
+        self.intrisic.intrinsic_matrix = dataloader.K
 
         cv2.namedWindow('debug')
 
@@ -47,15 +53,9 @@ class TumVisulizer(object):
         self.vis.reset_view_point(True)
 
     def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
-        rgb_img, depth_img, Twc_gt = self.dataloader.get_rgb()
-
-        print('[DEBUG]: Twc_GT: \n', Twc_gt)
-
-        Tcw_gt = np.linalg.inv(Twc_gt)
-        # rgb_img, depth_img, Tcw_gt = self.dataloader.get_rgb()
-        # Twc_gt = np.linalg.inv(Tcw_gt)
-
         # ### ------
+        # rgb_img, depth_img, Twc_gt = self.dataloader.get_rgb()
+        # Tcw_gt = np.linalg.inv(Twc_gt)
         # Pc, rgb_Pc = self.camera.project_rgbd2Pc(rgb_img, depth_img, depth_max=5.0, depth_min=0.1)
         # Pw = self.camera.project_Pc2Pw(Tcw=Tcw_gt, Pc=Pc)
         #
@@ -86,25 +86,50 @@ class TumVisulizer(object):
         # self.scence_pcd = self.scence_pcd.voxel_down_sample(0.01)
         ### ------
 
-        # self.vis.update_geometry(self.scence_pcd)
-
         ### ------
-        Pc, rgb_Pc = self.camera.project_rgbd2Pc(rgb_img, depth_img, depth_max=5.0, depth_min=0.1)
-        Pw = self.camera.project_Pc2Pw(Tcw=Tcw_gt, Pc=Pc)
-        scence_pcd = o3d.geometry.PointCloud()
-        scence_pcd.points = o3d.utility.Vector3dVector(Pw)
-        scence_pcd.colors = o3d.utility.Vector3dVector(rgb_Pc/255.)
+        rgb_img, depth_img, Twc_gt = self.dataloader.get_rgb(raw_depth=True)
+        # start_time = time.time()
+        scence_pcd = self.create_pcd_fast(rgb_img, depth_img, Twc_gt, self.intrisic,
+                                          depth_scale=self.dataloader.scalingFactor,
+                                          depth_truncate=3.0)
         scence_pcd = scence_pcd.voxel_down_sample(0.01)
+        # print('cost: ',time.time()-start_time)
+        ### ------
+
         self.vis.add_geometry(scence_pcd)
 
         # if self.step_num % 10 == 0:
         #     self.add_camera(Tcw_gt, self.camera, color=np.array([0.0, 0.0, 1.0]))
-        self.update_path(Twc_gt[:3, 3], self.path_gt)
+        # self.update_path(Twc_gt[:3, 3], self.path_gt)
 
         cv2.imshow('debug', cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR))
         cv2.waitKey(1)
 
         self.step_num += 1
+
+    def create_pcd_fast(
+            self,
+            rgb_img, depth_img, Twc,
+            intrisic:o3d.camera.PinholeCameraIntrinsic,
+            depth_scale=1.0, depth_truncate=3.0
+    ):
+        # rgb_img = o3d.io.read_image(path)
+        # depth_img = o3d.io.read_image(path)
+
+        rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color=o3d.geometry.Image(rgb_img),
+            depth=o3d.geometry.Image(depth_img),
+            depth_scale=depth_scale,
+            depth_trunc=depth_truncate,
+            convert_rgb_to_intensity=False
+        )
+        rgb_pcd: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(
+            image=rgbd_image,
+            intrinsic=intrisic,
+            extrinsic=np.linalg.inv(Twc),
+            project_valid_depth_only=True
+        )
+        return rgb_pcd
 
     def add_camera(self, Tcw, camera: Camera, color):
         Pc, link = camera.draw_camera_open3d(scale=0.3, shift=0)
@@ -147,12 +172,11 @@ class TumVisulizer(object):
 
 def test_tum_vis():
     data_loader = TumLoader(
-        rgb_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb',
-        depth_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth',
+        dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz',
         rgb_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb.txt',
         depth_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth.txt',
         gts_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/groundtruth.txt',
-        save_match=True
+        save_match_path='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/match.txt'
     )
 
     # data_loader = ICL_NUIM_Loader(

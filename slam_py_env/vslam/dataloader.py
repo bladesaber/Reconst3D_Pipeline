@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import transform
 
-
 class KITTILoader(object):
     def __init__(self, dir, gt_path, K):
         self.dir = dir
@@ -88,11 +87,12 @@ class KITTILoader(object):
         plt.plot(xz_poses[:, 0], xz_poses[:, 1])
         plt.show()
 
-
 class TumLoader(object):
-    def __init__(self, rgb_dir, depth_dir, rgb_list_txt, depth_list_txt, gts_txt, save_match=False):
-        self.rgb_dir = rgb_dir
-        self.depth_dir = depth_dir
+    def __init__(self,
+                 dir,
+                 rgb_list_txt, depth_list_txt,
+                 gts_txt, save_match_path=None):
+        self.dir = dir
         self.K = np.array([
             [517.3, 0., 318.6],
             [0., 516.4, 255.31],
@@ -100,25 +100,40 @@ class TumLoader(object):
         ])
         self.scalingFactor = 5000.0
 
+        offset = 0.0
         rgb_list = self.read_file_list(rgb_list_txt)
         depth_list = self.read_file_list(depth_list_txt)
-        self.rgb_depth_matches = self.associate(rgb_list, depth_list, offset=0, max_difference=0.02)
-        self.num = len(self.rgb_depth_matches)
+        gt_dict = self.read_trajectory(gts_txt)
+
+        rgb_depth_matches = self.associate(rgb_list, depth_list, offset=offset, max_difference=0.02)
+
+        rgb_depth_dict = {}
+        for rgb_stamp, depth_stamp in rgb_depth_matches:
+            rgb_depth_dict[rgb_stamp] = {
+                'rgb_stamp':rgb_stamp, 'rgb_file':rgb_list[rgb_stamp][0],
+                'depth_stamp':depth_stamp, 'depth_file':depth_list[depth_stamp][0]
+            }
+
+        rgb_gt_matches = self.associate(rgb_depth_dict, gt_dict, offset=0, max_difference=0.02)
+
+        self.associate_dict = {}
+        for rgb_stamp, gt_stamp in rgb_gt_matches:
+            rgb_depth = rgb_depth_dict[rgb_stamp].copy()
+            rgb_depth.update({
+                'gt_stamp':gt_stamp, 'Twc':gt_dict[gt_stamp]
+            })
+            self.associate_dict[rgb_stamp] = rgb_depth
+
+        self.num = len(self.associate_dict)
         self.pt = 0
+        self.time_stamps = sorted(list(self.associate_dict.keys()))
 
-        self.gt_dict = self.read_trajectory(gts_txt)
-        self.rgb_gt_matches = self.associate(rgb_list, self.gt_dict, offset=0, max_difference=0.02)
-
-        if save_match:
-            match_np = []
-            for idx, (rgb_stamp, depth_stamp) in enumerate(self.rgb_depth_matches):
-                _, gt_stamp = self.rgb_gt_matches[idx]
-                match_np.append(np.array([rgb_stamp, depth_stamp, gt_stamp]))
-
-                print(rgb_stamp, depth_stamp, gt_stamp)
-
-            match_np = np.array(match_np)
-            np.save('/home/psdz/HDD/quan/match1.npy', match_np)
+        if save_match_path is not None:
+            with open(save_match_path, 'w') as f:
+                for time_stamp in self.time_stamps:
+                    info = self.associate_dict[time_stamp]
+                    s = "%s %s %f\n" % (info['rgb_file'], info['depth_file'], info['gt_stamp'])
+                    f.write(s)
 
     def transform44(self, l):
         quaternion = l[4:8]
@@ -130,7 +145,7 @@ class TumLoader(object):
         T[:3, 3] = t
         return T
 
-    def read_trajectory(self, filename, matrix=True):
+    def read_trajectory(self, filename):
         """
         Read a trajectory from a text file.
 
@@ -223,44 +238,32 @@ class TumLoader(object):
         matches.sort()
         return matches
 
-    def get_rgb(self):
-        rgb_stamp, depth_stamp = self.rgb_depth_matches[self.pt]
-        _, gt_stamp = self.rgb_gt_matches[self.pt]
+    def get_rgb(self, raw_depth=False):
+        time_stamp = self.time_stamps[self.pt]
+        info = self.associate_dict[time_stamp]
 
-        rgb_path = os.path.join(self.rgb_dir, '%f.png' % rgb_stamp)
-        depth_path = os.path.join(self.depth_dir, '%f.png' % depth_stamp)
+        rgb_path = os.path.join(self.dir, info['rgb_file'])
+        depth_path = os.path.join(self.dir, info['depth_file'])
         print('[DEBUG]: Loading RGB %s' % rgb_path)
         print('[DEBUG]: Loading DEPTH %s' % depth_path)
-        print('[DEBUG]: RGB_TimeStamp: %f, DEPTH_TimeStamp: %f, GT_TimeStamp: %f' % (rgb_stamp, depth_stamp, gt_stamp))
+        print('[DEBUG]: RGB_TimeStamp: %f, DEPTH_TimeStamp: %f, GT_TimeStamp: %f' % (
+            info['rgb_stamp'], info['depth_stamp'], info['gt_stamp']
+        ))
 
         rgb = cv2.imread(rgb_path)
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
 
         depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-        depth = depth.astype(np.float64)
-        depth[depth == 0.0] = np.nan
-        depth = depth / self.scalingFactor
+        if not raw_depth:
+            depth = depth.astype(np.float64)
+            depth[depth == 0.0] = np.nan
+            depth = depth / self.scalingFactor
 
-        Twc_gt = self.gt_dict[gt_stamp]
+        Twc_gt = info['Twc']
 
         self.pt += 1
 
         return rgb, depth, Twc_gt
-
-    def plot_gt_path_xyz(self):
-        xyz_poses = []
-        for rgb_stamp, gt_stamp in self.rgb_gt_matches:
-            Twc = self.gt_dict[gt_stamp]
-            xyz = Twc[:3, 3]
-            xyz_poses.append(xyz)
-        xyz_poses = np.array(xyz_poses)
-
-        fig = plt.figure()
-        ax = fig.gca(projection="3d")
-        # ax.scatter(points_c[:, 0], points_c[:, 1], points_c[:, 2], s=0.6, c='r')
-        ax.plot(xyz_poses[:, 0], xyz_poses[:, 1], xyz_poses[:, 2])
-
-        plt.show()
 
 class ICL_NUIM_Loader(object):
     def __init__(self, association_path, dir, gts_txt):
@@ -326,12 +329,11 @@ class ICL_NUIM_Loader(object):
 
 if __name__ == '__main__':
     data_loader = TumLoader(
-        rgb_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb',
-        depth_dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth',
+        dir='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz',
         rgb_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb.txt',
         depth_list_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/depth.txt',
         gts_txt='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/groundtruth.txt',
-        save_match=True
+        # save_match_path='/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/associate.txt'
     )
     # data_loader.plot_gt_path_xyz()
 
