@@ -1,0 +1,10 @@
+ICL NUIM dataset providing:
+1. rgb image
+2. depth image
+3. ground truth pose
+4. ground truth ply
+
+url: https://www.doc.ic.ac.uk/~ahanda/VaFRIC/iclnuim.html
+ply url: https://github.com/mp3guy/SurfReg
+
+likely to Tum Dataset, since ground truth pose is not correctly, you can use open3d to create a virtual dataset

@@ -357,6 +357,9 @@ class EpipolarComputer(object):
         return Tc1c0, mask
 
     def triangulate_2d2d(self, K, Tcw0, Tcw1, uvs0, uvs1):
+        np.save('/home/psdz/HDD/quan/slam_ws/uv0', uvs0)
+        np.save('/home/psdz/HDD/quan/slam_ws/uv1', uvs1)
+
         uvs0 = uvs0[:, np.newaxis, :]
         uvs1 = uvs1[:, np.newaxis, :]
         P_0 = K.dot(Tcw0[:3, :])

@@ -1,8 +1,27 @@
-import open3d as o3d
 import cv2
+import numpy as np
 
-# color_raw = o3d.io.read_image('/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb/1305031102.175304.png')
-# print(type(color_raw))
+uv0 = np.load('/home/psdz/HDD/quan/slam_ws/uv0.npy')
+uv1 = np.load('/home/psdz/HDD/quan/slam_ws/uv1.npy')
 
-img = cv2.imread('/home/psdz/HDD/quan/slam_ws/rgbd_dataset_freiburg1_xyz/rgb/1305031102.175304.png')
-img = o3d.geometry.Image(img)
+Tcw0 = np.array([
+    [0.99999979, -0.00059981, 0.00025396, 0.00398212],
+    [0.00059981, 0.99999982, 0.00003467, 0.00016973],
+    [-0.00025398, -0.00003452, 0.99999997, 2.49930481],
+    [0., 0., 0., 1.]
+])
+
+Tcw1 = np.array([
+    [0.99999889, -0.00115943, -0.00093234, 0.01083409],
+    [0.00116105, 0.99999782, 0.00173303, -0.00607985],
+    [0.00093033, -0.00173411, 0.99999806, 2.50067889],
+    [0., 0., 0., 1.]
+])
+
+K = np.array([
+    [481.2, 0., 319.5],
+    [0., 480., 239.5],
+    [0., 0., 1.]
+])
+
+

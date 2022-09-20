@@ -3,11 +3,12 @@ import open3d as o3d
 import cv2
 import numpy as np
 import pandas as pd
+from typing import List
 
 from slam_py_env.vslam.utils import Camera
 from slam_py_env.vslam.dataloader import TumLoader
 from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
-
+from slam_py_env.vslam.vo_utils import MapPoint
 
 class TumVisulizer(object):
     def __init__(self, camera: Camera, dataloader:TumLoader):
@@ -169,6 +170,159 @@ class TumVisulizer(object):
 
         self.vis.update_geometry(path_o3d)
 
+class MapStepVisulizer(object):
+    def __init__(self):
+        cv2.namedWindow('debug')
+
+        self.map_points = o3d.geometry.PointCloud()
+
+        self.path_gt = o3d.geometry.LineSet()
+        self.path_pred = o3d.geometry.LineSet()
+        self.scence_pcd = o3d.geometry.PointCloud()
+        self.tracking_pcd = o3d.geometry.PointCloud()
+        self.new_create_pcd = o3d.geometry.PointCloud()
+        self.map_pcd = o3d.geometry.PointCloud()
+
+        self.update_scence_ctr = True
+
+        self.vis = o3d.visualization.VisualizerWithKeyCallback()
+        self.vis.create_window(height=720, width=960)
+
+        opt = self.vis.get_render_option()
+        # opt.background_color = np.asarray([0, 0, 0])
+        opt.line_width = 100.0
+
+        axis_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3, origin=np.array([0., 0., 0.]))
+        self.vis.add_geometry(axis_mesh)
+
+        self.vis.add_geometry(self.path_gt)
+        self.vis.add_geometry(self.path_pred)
+        self.vis.add_geometry(self.tracking_pcd)
+        self.vis.add_geometry(self.map_pcd)
+        self.vis.add_geometry(self.scence_pcd)
+        self.vis.add_geometry(self.new_create_pcd)
+
+        self.vis.register_key_callback(ord(','), self.step_visulize)
+        self.vis.register_key_callback(ord('.'), self.reset_viewpoint)
+
+        self.vis.run()
+        self.vis.destroy_window()
+
+    def reset_viewpoint(self, vis: o3d.visualization.VisualizerWithKeyCallback):
+        self.vis.reset_view_point(True)
+
+    def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
+        pass
+
+    def add_camera(self, Tcw, camera:Camera, color):
+        Pc, link = camera.draw_camera_open3d(scale=0.3, shift=0)
+        Pw = camera.project_Pc2Pw(Tcw, Pc)
+        cameras_color = np.tile(color.reshape((1, 3)), (link.shape[0], 1))
+
+        camera = o3d.geometry.LineSet()
+        camera.points = o3d.utility.Vector3dVector(Pw)
+        camera.lines = o3d.utility.Vector2iVector(link)
+        camera.colors = o3d.utility.Vector3dVector(cameras_color)
+
+        self.vis.add_geometry(camera)
+
+        # view_control: o3d.visualization.ViewControl = self.vis.get_view_control()
+
+    def update_path(self, Ow, path_o3d, path_color):
+        positions = np.asarray(path_o3d.points).copy()
+        positions = np.concatenate(
+            (positions, Ow.reshape((1, 3))), axis=0
+        )
+
+        path_o3d.points = o3d.utility.Vector3dVector(positions)
+
+        if positions.shape[0]>1:
+            from_id = positions.shape[0] - 2
+            to_id = positions.shape[0] - 1
+
+            colors = np.asarray(path_o3d.colors).copy()
+            colors = np.concatenate([colors, path_color.reshape((1, 3))], axis=0)
+            path_o3d.colors = o3d.utility.Vector3dVector(colors)
+
+            lines = np.asarray(path_o3d.lines).copy()
+            lines = np.concatenate(
+                [lines, np.array([[from_id, to_id]])], axis=0
+            )
+            path_o3d.lines = o3d.utility.Vector2iVector(lines)
+
+        self.vis.update_geometry(path_o3d)
+
+    def update_scence(
+            self, rgb_img, depth_img,
+            depth_max, depth_min, Tcw,
+            camera:Camera
+    ):
+        h, w, c = rgb_img.shape
+        xs, ys = np.meshgrid(np.arange(0, w, 1), np.arange(0, h, 1))
+        uvs = np.concatenate([xs[..., np.newaxis], ys[..., np.newaxis]], axis=-1)
+        uvs = uvs.reshape((-1, 2))
+        uvd = np.concatenate([uvs, depth_img.reshape((-1, 1))], axis=1)
+        rgb = rgb_img.reshape((-1, 3))/255.
+        uvd_rgb = np.concatenate([uvd, rgb], axis=1)
+
+        valid_bool = ~np.isnan(uvd_rgb[:, 2])
+        uvd_rgb = uvd_rgb[valid_bool]
+        valid_bool = uvd_rgb[:, 2]<depth_max
+        uvd_rgb = uvd_rgb[valid_bool]
+        valid_bool = uvd_rgb[:, 2]>depth_min
+        uvd_rgb = uvd_rgb[valid_bool]
+
+        Pcs = camera.project_uvd2Pc(uvd_rgb[:, :3])
+        Pws = camera.project_Pc2Pw(Tcw=Tcw, Pc=Pcs)
+
+        self.scence_pcd.points = o3d.utility.Vector3dVector(np.concatenate([
+            np.asarray(self.scence_pcd.points), Pws
+        ], axis=0))
+        self.scence_pcd.colors = o3d.utility.Vector3dVector(np.concatenate([
+            np.asarray(self.scence_pcd.colors), uvd_rgb[:, 3:]
+        ], axis=0))
+
+        self.vis.update_geometry(self.scence_pcd)
+
+    def update_mapPoints(self, mapPoints:List[MapPoint], color):
+        num = len(mapPoints)
+        xyz_rgb = np.zeros((num, 6))
+        for idx, point in enumerate(mapPoints):
+            xyz_rgb[idx, :3] = point.Pw
+            xyz_rgb[idx, 3:] = color
+
+        self.map_pcd.points = o3d.utility.Vector3dVector(np.concatenate([
+            np.asarray(self.map_pcd.points), xyz_rgb[:, :3]
+        ], axis=0))
+        self.map_pcd.colors = o3d.utility.Vector3dVector(np.concatenate([
+            np.asarray(self.map_pcd.colors), xyz_rgb[:, 3:]
+        ], axis=0))
+
+        self.vis.update_geometry(self.map_pcd)
+
+    def update_track_mapPoints(self, mapPoints: List[MapPoint], color):
+        num = len(mapPoints)
+        xyz_rgb = np.zeros((num, 6))
+        for idx, point in enumerate(mapPoints):
+            xyz_rgb[idx, :3] = point.Pw
+            xyz_rgb[idx, 3:] = color
+
+        self.tracking_pcd.points = o3d.utility.Vector3dVector(xyz_rgb[:, :3])
+        self.tracking_pcd.colors = o3d.utility.Vector3dVector(xyz_rgb[:, 3:])
+
+        self.vis.update_geometry(self.tracking_pcd)
+
+    def update_create_mapPoints(self, mapPoints: List[MapPoint], color):
+        num = len(mapPoints)
+        xyz_rgb = np.zeros((num, 6))
+        for idx, point in enumerate(mapPoints):
+            xyz_rgb[idx, :3] = point.Pw
+            xyz_rgb[idx, 3:] = color
+
+        self.new_create_pcd.points = o3d.utility.Vector3dVector(xyz_rgb[:, :3])
+        self.new_create_pcd.colors = o3d.utility.Vector3dVector(xyz_rgb[:, 3:])
+
+        self.vis.update_geometry(self.new_create_pcd)
 
 def test_tum_vis():
     data_loader = TumLoader(
