@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import pickle
 
 class Camera(object):
     def __init__(self, K: np.array):
@@ -153,7 +154,7 @@ def draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1):
         cv2.circle(img_concat, (x1, y1), radius=4, color=(255, 0, 0), thickness=2)
         cv2.line(img_concat, (x0, y0), (x1, y1), color=(0, 255, 0), thickness=2)
 
-        cv2.imshow('d', img_concat)
+        cv2.imshow('match_check', img_concat)
         key = cv2.waitKey(0)
         if key == ord('q'):
             break
@@ -357,9 +358,7 @@ class EpipolarComputer(object):
         return Tc1c0, mask
 
     def triangulate_2d2d(self, K, Tcw0, Tcw1, uvs0, uvs1):
-        np.save('/home/psdz/HDD/quan/slam_ws/uv0', uvs0)
-        np.save('/home/psdz/HDD/quan/slam_ws/uv1', uvs1)
-
+        ### todo 如果平移距离过短，三角测量的值非常不稳定，几乎都是错的
         uvs0 = uvs0[:, np.newaxis, :]
         uvs1 = uvs1[:, np.newaxis, :]
         P_0 = K.dot(Tcw0[:3, :])
@@ -390,3 +389,11 @@ class EpipolarComputer(object):
         Tcw[:3, 3] = t.reshape(-1)
 
         return mask, Tcw
+
+    def compute_triangulate_points(self, K, Tcw0, Tcw1, uvs0, uvs1, scenceDepth, thre=0.01):
+        base_line = np.linalg.norm(Tcw0[:3, 3] - Tcw1[:3, 3], ord=2)
+        if base_line/scenceDepth<thre:
+            return False, None
+        else:
+            Pws = self.triangulate_2d2d(K, Tcw0, Tcw1, uvs0, uvs1)
+            return True, Pws

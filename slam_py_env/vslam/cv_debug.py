@@ -456,10 +456,10 @@ def test_pose_estimate_2d2d_custom():
 
 if __name__ == '__main__':
     # test_pose_estimate_2d2d_cv()
-    # test_triangulate_2d2d()
+    test_triangulate_2d2d()
     # test_pose_estimate_3d2d()
     # test_pose_estimate_2d2d_custom()
 
-    test_img_2d2d()
+    # test_img_2d2d()
 
     pass

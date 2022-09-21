@@ -182,6 +182,7 @@ class MapStepVisulizer(object):
         self.tracking_pcd = o3d.geometry.PointCloud()
         self.new_create_pcd = o3d.geometry.PointCloud()
         self.map_pcd = o3d.geometry.PointCloud()
+        self.dynamic_camera = None
 
         self.update_scence_ctr = True
 
@@ -205,6 +206,7 @@ class MapStepVisulizer(object):
         self.vis.register_key_callback(ord(','), self.step_visulize)
         self.vis.register_key_callback(ord('.'), self.reset_viewpoint)
 
+    def run(self):
         self.vis.run()
         self.vis.destroy_window()
 
@@ -224,9 +226,29 @@ class MapStepVisulizer(object):
         camera.lines = o3d.utility.Vector2iVector(link)
         camera.colors = o3d.utility.Vector3dVector(cameras_color)
 
-        self.vis.add_geometry(camera)
+        self.vis.add_geometry(camera, reset_bounding_box=False)
 
         # view_control: o3d.visualization.ViewControl = self.vis.get_view_control()
+
+    def update_camera(self, Tcw, camera:Camera, color):
+        Pc, link = camera.draw_camera_open3d(scale=0.3, shift=0)
+        Pw = camera.project_Pc2Pw(Tcw, Pc)
+        cameras_color = np.tile(color.reshape((1, 3)), (link.shape[0], 1))
+
+        if self.dynamic_camera is None:
+            self.dynamic_camera = o3d.geometry.LineSet()
+            self.dynamic_camera.points = o3d.utility.Vector3dVector(Pw)
+            self.dynamic_camera.lines = o3d.utility.Vector2iVector(link)
+            self.dynamic_camera.colors = o3d.utility.Vector3dVector(cameras_color)
+
+            self.vis.add_geometry(self.dynamic_camera, reset_bounding_box=False)
+
+        else:
+            self.dynamic_camera.points = o3d.utility.Vector3dVector(Pw)
+            self.dynamic_camera.lines = o3d.utility.Vector2iVector(link)
+            self.dynamic_camera.colors = o3d.utility.Vector3dVector(cameras_color)
+
+            self.vis.update_geometry(self.dynamic_camera)
 
     def update_path(self, Ow, path_o3d, path_color):
         positions = np.asarray(path_o3d.points).copy()
