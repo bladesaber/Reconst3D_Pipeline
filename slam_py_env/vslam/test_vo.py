@@ -60,7 +60,7 @@ def test_vo_rgbd():
                     vo.t_step += 1
 
                 elif vo.status == vo.TRACKING:
-                    frame, (show_img, mappoints_track, mappoints_new) = vo.run_TRACKING(rgb_img, depth_img, Tcw_gt)
+                    frame, (show_img, mappoints_track, mappoints_new, is_new_frame) = vo.run_TRACKING(rgb_img, depth_img, Tcw_gt)
                     vo.t_step += 1
 
                 else:
@@ -85,17 +85,17 @@ def test_vo_rgbd():
                     self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
                     self.update_track_mapPoints(mappoints_track, np.array([1.0, 0.0, 0.0]))
 
-                print('[DEBUG]: GT Twc: \n', Twc_gt)
-                print('[DEBUG]: PRED Tcw: \n', frame.Twc)
+                    # if is_new_frame:
+                    #     self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 0.0, 1.0]))
 
-                # if vo.t_step%5==0:
-                #     self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 0.0, 1.0]))
-                #     self.add_camera(Tcw_gt, vo.camera, color=np.array([1.0, 0.0, 0.0]))
+                print('[DEBUG]: GT Twc: \n', Twc_gt)
+                print('[DEBUG]: PRED Twc: \n', frame.Twc)
+
                 self.update_camera(frame.Tcw, vo.camera, color=np.array([0.0, 0.0, 1.0]))
                 self.update_path(frame.Ow, self.path_pred, path_color=np.array([0.0, 0.0, 1.0]))
                 self.update_path(Twc_gt[:3, 3], self.path_gt, path_color=np.array([1.0, 0.0, 0.0]))
 
-                cv2.imshow('debug', show_img)
+                cv2.imshow('debug', cv2.cvtColor(show_img, cv2.COLOR_RGB2BGR))
                 cv2.waitKey(1)
 
                 print('')

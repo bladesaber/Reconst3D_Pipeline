@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import pickle
+from scipy.spatial import transform
 
 class Camera(object):
     def __init__(self, K: np.array):
@@ -369,7 +370,16 @@ class EpipolarComputer(object):
 
         return Pws
 
-    def compute_pose_3d2d(self, K, Pws, uvs, max_err_reproj=2.0):
+    def compute_pose_3d2d(self, K, Pws, uvs, max_err_reproj=2.0, Tcw_ref=None):
+        useExtrinsicGuess = False
+        rvec_ref, t_ref = None, None
+        if Tcw_ref is not None:
+            useExtrinsicGuess = True
+            rvec_ref = transform.Rotation.from_matrix(Tcw_ref[:3, :3]).as_rotvec()
+            t_ref = Tcw_ref[:3, 3]
+            rvec_ref = rvec_ref.reshape((-1, 1))
+            t_ref = t_ref.reshape((-1, 1))
+
         Pws = Pws[:, np.newaxis, :]
         uvs = uvs[:, np.newaxis, :]
 
@@ -378,7 +388,10 @@ class EpipolarComputer(object):
             Pws, uvs,
             K, None, reprojectionError=max_err_reproj,
             iterationsCount=10000,
-            confidence=0.9999
+            confidence=0.9999,
+            useExtrinsicGuess=useExtrinsicGuess, rvec=rvec_ref, tvec=t_ref,
+            ### todo be careful, default method is cv2.SOLVEPNP_ITERATIVE
+            flags=cv2.SOLVEPNP_EPNP
         )
         mask_ids = mask_ids.reshape(-1)
         mask[mask_ids] = True

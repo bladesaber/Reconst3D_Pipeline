@@ -9,7 +9,7 @@ from copy import copy, deepcopy
 from slam_py_env.vslam.utils import Camera
 from slam_py_env.vslam.utils import draw_kps, draw_matches
 from slam_py_env.vslam.utils import draw_matches_check, draw_kps_match
-from slam_py_env.vslam.extractor import ORBExtractor
+from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter, ORBExtractor
 from slam_py_env.vslam.utils import EpipolarComputer
 from slam_py_env.vslam.vo_utils import Frame, MapPoint
 from slam_py_env.vslam.vo_utils import EnvSaveObj1
@@ -174,7 +174,7 @@ class ORBVO_RGBD(object):
     def __init__(self, camera: Camera, debug_dir=None):
         self.camera = camera
 
-        self.orb_extractor = ORBExtractor(nfeatures=300)
+        self.orb_extractor = ORBExtractor_BalanceIter(nfeatures=300, balance_iter=5, radius=15)
         self.orb_match_thre = 0.5
 
         self.epipoler = EpipolarComputer()
@@ -183,12 +183,17 @@ class ORBVO_RGBD(object):
         self.map_points = {}
         self.key_frames = {}
         self.cur_keyFrame = None
+        self.last_frame = None
         self.trajectory = []
 
         self.status = self.INIT_IMAGE
         self.depth_max = 10.0
         self.depth_min = 0.1
-        self.need_frame_thre = 0.3
+        self.need_frame_thre = 0.25
+
+        ### todo be careful, max reproject error is senseitive
+        ### 调整最大映射误差并无法解决问题，这是关于回召（RANSAC）与最大误差之间的权衡
+        self.PnPRansac_max_reproject_error = 2.0
 
         self.debug_dir = debug_dir
 
@@ -197,9 +202,7 @@ class ORBVO_RGBD(object):
         print('[DEBUG]: Running INIT_IMAGE Process t:%d' % t_step)
 
         img_gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
-        kps0_cv = self.orb_extractor.extract_kp(img_gray)
-        descs0 = self.orb_extractor.extract_desc(img_gray, kps0_cv)
-        kps0 = cv2.KeyPoint_convert(kps0_cv)
+        kps0, descs0 = self.orb_extractor.extract_kp_desc(img_gray)
 
         frame0 = Frame(img_gray, kps0, descs0, t_step, t_step, img_rgb=rgb_img)
         frame0.set_Tcw(Tcw=Tcw)
@@ -212,6 +215,7 @@ class ORBVO_RGBD(object):
         self.trajectory.append(frame0.Tcw)
         self.key_frames[str(frame0)] = frame0
         self.cur_keyFrame = frame0
+        self.last_frame = frame0
 
         show_img = draw_kps(frame0.img_rgb.copy(), frame0.kps)
         return frame0, (show_img, mapPoints_new, )
@@ -222,9 +226,8 @@ class ORBVO_RGBD(object):
 
         ### --- init
         img_gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
-        kps1_cv = self.orb_extractor.extract_kp(img_gray)
-        descs1 = self.orb_extractor.extract_desc(img_gray, kps1_cv)
-        kps1 = cv2.KeyPoint_convert(kps1_cv)
+        kps1, descs1 = self.orb_extractor.extract_kp_desc(img_gray)
+        print('[DEBUG]: Creating Kps: ', kps1.shape)
 
         frame0: Frame = self.cur_keyFrame
         print('[DEBUG]: Tracking KeyFrame: %s'%(str(frame0)))
@@ -236,13 +239,19 @@ class ORBVO_RGBD(object):
         print('[DEBUG]: Step:%d Match kps_num:%d' % (t_step, midxs0.shape[0]))
 
         ### ------ estimate Tcw
-        Tcw, masks, (mapPoints_track, ) = self.estimate_Tcw(frame0, frame1, midxs0, midxs1)
+        Tcw, (masks, correct_match_num), (mapPoints_track, ) = self.estimate_Tcw(
+            frame0, frame1, midxs0, midxs1,
+            ref_Tcw=self.last_frame.Tcw
+            # ref_Tcw=None
+        )
 
         ### ------ create points for new frame
         mapPoints_new = []
 
-        tracking_ratio = len(mapPoints_track)/float(kps1.shape[0])
+        tracking_ratio = correct_match_num/float(kps1.shape[0])
         print('[DEBUG]: Tracking Ratio: %f' % tracking_ratio)
+
+        create_new_frame = Frame
         if tracking_ratio < self.need_frame_thre:
             rest_idxs = np.concatenate([midxs1[~masks], umidxs1])
             mapPoints_new = self.create_mapPoint(
@@ -253,8 +262,10 @@ class ORBVO_RGBD(object):
             self.key_frames[str(frame1)] = frame1
             self.cur_keyFrame = frame1
 
+            create_new_frame = True
             print('[DEBUG]: Create New KeyFrame With Points: %d'%(frame1.has_point.sum()))
 
+        self.last_frame = frame1
         self.trajectory.append(frame1.Tcw)
 
         ### --- debug
@@ -277,11 +288,10 @@ class ORBVO_RGBD(object):
                         frame0=frame0, frame1=frame1,
                         midxs0=midxs0, midxs1=midxs1, Tcw_gt=Tcw_gt, camera=self.camera,
                     )
-                cv2.waitKey(5000)
 
-        return frame1, (show_img, mapPoints_track, mapPoints_new)
+        return frame1, (show_img, mapPoints_track, mapPoints_new, create_new_frame)
 
-    def estimate_Tcw(self, frame0:Frame, frame1:Frame, midxs0, midxs1):
+    def estimate_Tcw(self, frame0:Frame, frame1:Frame, midxs0, midxs1, ref_Tcw):
         mapPoints_track = []
 
         pose_match = np.zeros(midxs0.shape[0], dtype=np.bool)
@@ -302,7 +312,7 @@ class ORBVO_RGBD(object):
         print('[DEBUG]: Step:%d PoseEstimate Match_num:%d' % (self.t_step, Pws.shape[0]))
 
         masks, Tcw = self.epipoler.compute_pose_3d2d(
-            self.camera.K, Pws, kps1_uv, max_err_reproj=2.0
+            self.camera.K, Pws, kps1_uv, max_err_reproj=self.PnPRansac_max_reproject_error, Tcw_ref=ref_Tcw
         )
         print('[DEBUG]: Step:%d PoseEstimate CorrectMatch_num:%d' % (self.t_step, masks.sum()))
 
@@ -312,7 +322,7 @@ class ORBVO_RGBD(object):
                 frame1.set_feature(idx1, frame0.map_points[idx0])
                 frame0.map_points[idx0].add_frame(frame1, t_step=self.t_step)
 
-        return Tcw, pose_match, (mapPoints_track, )
+        return Tcw, (pose_match, masks.sum()), (mapPoints_track, )
 
     def create_mapPoint(
             self,

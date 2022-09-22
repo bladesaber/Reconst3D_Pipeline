@@ -33,6 +33,10 @@ def rotationVec_to_quaternion_scipy(vec):
     r = transform.Rotation.from_rotvec(vec)
     return r.as_quat()
 
+def rotationMat_to_rotationVec_scipy(R):
+    r = transform.Rotation.from_matrix(matrix=R)
+    return r.as_rotvec()
+
 def xyz_to_ply(point_cloud, filename, rgb=None):
     if rgb is not None:
         colors = rgb.reshape(-1, 3)

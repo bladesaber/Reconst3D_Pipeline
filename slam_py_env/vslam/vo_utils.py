@@ -76,8 +76,8 @@ class EnvSaveObj1(object):
             midxs0, midxs1, Tcw_gt,
             camera: Camera, debug_dir
     ):
-        tick = datetime.now().strftime('%Y%m%d_%H%M%S.pkl')
-        save_path = os.path.join(debug_dir, tick)
+        tick = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        save_path = os.path.join(debug_dir, tick+'.pkl')
 
         self.camera = copy(camera)
         self.midxs0 = midxs0
@@ -90,6 +90,8 @@ class EnvSaveObj1(object):
         self.frame1_kps = copy(frame1.kps)
         self.frame0_Tcw = frame0.Tcw
         self.frame1_Tcw = frame1.Tcw
+        self.frame0_desc = frame0.descs
+        self.frame1_desc = frame1.descs
 
         num = frame0.map_points.shape[0]
         self.map_points = np.zeros((num, 3))
