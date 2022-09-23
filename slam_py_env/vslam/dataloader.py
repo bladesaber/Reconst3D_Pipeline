@@ -321,7 +321,7 @@ class ICL_NUIM_Loader(object):
 
             return True, (rgb, depth, Twc_gt)
         else:
-            return False, None
+            return False, (None, None, None)
 
 if __name__ == '__main__':
     # data_loader = TumLoader(

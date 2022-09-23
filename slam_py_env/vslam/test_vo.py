@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from slam_py_env.vslam.utils import Camera
-from slam_py_env.vslam.vo_orb import ORBVO_MONO, ORBVO_RGBD
+from slam_py_env.vslam.vo_orb import ORBVO_RGBD_Frame
 from slam_py_env.vslam.dataloader import KITTILoader
 from slam_py_env.vslam.dataloader import TumLoader
 from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
@@ -30,7 +30,7 @@ def test_vo_rgbd():
     )
 
     camera = Camera(K=dataloader.K)
-    vo = ORBVO_RGBD(camera=camera, debug_dir='/home/psdz/HDD/quan/slam_ws/debug')
+    vo = ORBVO_RGBD_Frame(camera=camera, debug_dir='/home/psdz/HDD/quan/slam_ws/debug')
 
     class Visulizer(MapStepVisulizer):
         def __init__(self):
@@ -63,6 +63,9 @@ def test_vo_rgbd():
                     frame, (show_img, mappoints_track, mappoints_new, is_new_frame) = vo.run_TRACKING(rgb_img, depth_img, Tcw_gt)
                     vo.t_step += 1
 
+                    # if is_new_frame:
+                    #     self.update_scence_ctr = True
+
                 else:
                     raise ValueError
 
@@ -85,8 +88,8 @@ def test_vo_rgbd():
                     self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
                     self.update_track_mapPoints(mappoints_track, np.array([1.0, 0.0, 0.0]))
 
-                    # if is_new_frame:
-                    #     self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 0.0, 1.0]))
+                    if is_new_frame:
+                        self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 1.0, 0.0]), scale=0.08)
 
                 print('[DEBUG]: GT Twc: \n', Twc_gt)
                 print('[DEBUG]: PRED Twc: \n', frame.Twc)

@@ -184,7 +184,8 @@ class MapStepVisulizer(object):
         self.map_pcd = o3d.geometry.PointCloud()
         self.dynamic_camera = None
 
-        self.update_scence_ctr = True
+        self.update_scence_ctr = False
+        self.show_scence = True
 
         self.vis = o3d.visualization.VisualizerWithKeyCallback()
         self.vis.create_window(height=720, width=960)
@@ -205,10 +206,19 @@ class MapStepVisulizer(object):
 
         self.vis.register_key_callback(ord(','), self.step_visulize)
         self.vis.register_key_callback(ord('.'), self.reset_viewpoint)
+        self.vis.register_key_callback(ord('3'), self.reset_viewpoint)
 
     def run(self):
         self.vis.run()
         self.vis.destroy_window()
+
+    def show_hide_scence(self):
+        if self.show_scence:
+            self.vis.remove_geometry(self.scence_pcd)
+            self.show_scence = False
+        else:
+            self.vis.add_geometry(self.scence_pcd)
+            self.show_scence = True
 
     def reset_viewpoint(self, vis: o3d.visualization.VisualizerWithKeyCallback):
         self.vis.reset_view_point(True)
@@ -216,8 +226,8 @@ class MapStepVisulizer(object):
     def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
         pass
 
-    def add_camera(self, Tcw, camera:Camera, color):
-        Pc, link = camera.draw_camera_open3d(scale=0.3, shift=0)
+    def add_camera(self, Tcw, camera:Camera, color, scale=0.3):
+        Pc, link = camera.draw_camera_open3d(scale=scale, shift=0)
         Pw = camera.project_Pc2Pw(Tcw, Pc)
         cameras_color = np.tile(color.reshape((1, 3)), (link.shape[0], 1))
 

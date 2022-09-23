@@ -3,8 +3,10 @@ import numpy as np
 import math
 import time
 import matplotlib.pyplot as plt
+from scipy.spatial import KDTree
 
-from slam_py_env.vslam.utils import draw_kps, draw_matches
+from slam_py_env.vslam.utils import draw_kps, draw_matches, draw_matches_check
+from slam_py_env.vslam.utils import Camera
 
 class ORBExtractor(object):
     ### 线性暴力搜索
@@ -41,7 +43,7 @@ class ORBExtractor(object):
         _, desc = self.extractor.compute(gray, kps)
         return desc
 
-    def match(self, desc0: np.array, desc1: np.array, thre=0.15):
+    def match(self, desc0:np.array, desc1:np.array, match_thre=0.5, dist_thre=30.0):
         # matches = self.matcher.match(desc0, desc1)
         matches = self.matcher.knnMatch(desc0, desc1, k=2)
 
@@ -53,7 +55,7 @@ class ORBExtractor(object):
                 continue
 
             m, n = match
-            if m.distance < n.distance * thre:
+            if (m.distance < n.distance * match_thre) or ((m.distance+n.distance)/2.0<dist_thre):
                 query_idx = m.queryIdx
                 train_idx = m.trainIdx
                 if query_idx in m_idx0:
@@ -77,15 +79,16 @@ class ORBExtractor(object):
 class ORBExtractor_BalanceIter(ORBExtractor):
     def __init__(
             self,
-            balance_iter:int, radius:int,
-            nfeatures=500, scaleFactor=None,
+            radius:int, max_iters,
+            single_nfeatures=50, nfeatures=300,
+            scaleFactor=None,
             nlevels=None, patchSize=None,
     ):
-        nfeatures = math.ceil(nfeatures / float(balance_iter))
-        self.balance_iter = balance_iter
+        self.nfeatures = nfeatures
         self.radius = radius
+        self.max_iters = max_iters
 
-        super(ORBExtractor_BalanceIter, self).__init__(nfeatures, scaleFactor, nlevels, patchSize)
+        super(ORBExtractor_BalanceIter, self).__init__(single_nfeatures, scaleFactor, nlevels, patchSize)
 
     def extract_kp_desc(self, gray, mask=None):
         h, w = gray.shape
@@ -96,7 +99,7 @@ class ORBExtractor_BalanceIter(ORBExtractor):
             mask_img = np.ones(gray.shape, dtype=np.uint8) * 255
 
         kps_group, descs_group = np.zeros((0, 2), dtype=np.float64), np.zeros((0, 32), dtype=np.uint8)
-        for iter in range(self.balance_iter):
+        for iter in range(self.max_iters):
             kps_cv = self.extractor.detect(gray, mask=mask_img)
 
             if len(kps_cv)>0:
@@ -114,10 +117,71 @@ class ORBExtractor_BalanceIter(ORBExtractor):
                 kps_group = np.concatenate([kps_group, kps], axis=0)
                 descs_group = np.concatenate([descs_group, desc], axis=0)
 
+            if kps_group.shape[0]>self.nfeatures:
+                break
+
         kps_group = np.ascontiguousarray(kps_group)
         descs_group = np.ascontiguousarray(descs_group)
 
         return kps_group, descs_group
+
+    def match_from_project(
+            self,
+            Pws0, descs0, uvs1, descs1, Tcw1_init,
+            depth_thre, radius, dist_thre,
+            camera:Camera
+    ):
+        visable_idxs = np.arange(0, Pws0.shape[0], 1)
+
+        uvs0, depths = camera.project_Pw2uv(Tcw1_init, Pws0)
+
+        valid_depth_bool = depths < depth_thre
+        uvs0 = uvs0[valid_depth_bool]
+        visable_idxs = visable_idxs[valid_depth_bool]
+
+        valid_x_bool = np.bitwise_and(uvs0[:, 0] > 0.0, uvs0[:, 0] < camera.width)
+        uvs0 = uvs0[valid_x_bool]
+        visable_idxs = visable_idxs[valid_x_bool]
+
+        valid_y_bool = np.bitwise_and(uvs0[:, 1] > 0.0, uvs0[:, 1] < camera.height)
+        uvs0 = uvs0[valid_y_bool]
+        visable_idxs = visable_idxs[valid_y_bool]
+
+        uvs1_kdtree = KDTree(uvs1)
+        neighbour_idxs = uvs1_kdtree.query_ball_point(uvs0, r=radius)
+
+        ### todo neighbour_idxs 这个 idx 用于uvs1
+
+        # midxs0, midxs1 = [], []
+        # umidxs1 = []
+        # cross_checks = np.ones((Pws0.shape[0],), dtype=np.bool)
+        # for idx1, (search_idxs, uv1, desc1) in enumerate(zip(neighbour_idxs, uvs1, descs1)):
+        #     idxs0 = visable_idxs[search_idxs]
+        #     cross = cross_checks[search_idxs]
+        #     idxs0 = idxs0[cross]
+        #
+        #     if idxs0.shape[0]>0:
+        #         desc0_batch = descs0[idxs0]
+        #         dists = self.compute_dist_custom(desc1, desc0_batch)
+        #
+        #         select_id = np.argmin(dists)
+        #         if dists[select_id]<dist_thre:
+        #             select_idx0 = idxs0[select_id]
+        #             cross_checks[select_idx0] = False
+        #
+        #             midxs0.append(select_idx0)
+        #             midxs1.append(idx1)
+        #             continue
+        #
+        #     umidxs1.append(idx1)
+        #
+        # return (midxs0, midxs1), (umidxs1, )
+
+        return uvs0
+
+    def compute_dist_custom(self, desc, desc_batch):
+        dists = np.linalg.norm(desc_batch - desc, ord=2, axis=1)
+        return dists
 
 class SIFTExtractor(object):
     def __init__(self, nfeatures=None):
@@ -176,30 +240,35 @@ class LKExtractor(object):
         )
 
 if __name__ == '__main__':
-    extractor1 = ORBExtractor_BalanceIter(nfeatures=300, balance_iter=5, radius=15)
+    extractor1 = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)
 
-    img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/0.png')
+    img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/229.png')
     img0_gray = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
     kps0, desc0 = extractor1.extract_kp_desc(img0_gray)
 
-    # for _ in range(10):
-    #     start_time = time.time()
-    #     kps0, desc0 = extractor1.extract_kp_desc(img0_gray)
-    #     print(time.time()-start_time)
-
-    img1 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/9.png')
+    img1 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/233.png')
     img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     kps1, desc1 = extractor1.extract_kp_desc(img1_gray.copy())
 
-    # print(kps0.shape, kps1.shape)
-    (midxs0, midxs1), _ = extractor1.match(desc0, desc1, thre=0.5)
+    print(kps0.shape, kps1.shape)
+    # (midxs0, midxs1), _ = extractor1.match(desc0, desc1, match_thre=0.5)
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = matcher.match(desc0, desc1)
+    midxs0, midxs1 = [], []
+    for m in matches:
+        query_idx = m.queryIdx
+        train_idx = m.trainIdx
+        midxs0.append(query_idx)
+        midxs1.append(train_idx)
+    midxs0 = np.array(midxs0)
+    midxs1 = np.array(midxs1)
+
     print(midxs0.shape)
 
-    show_img0 = draw_kps(img0.copy(), kps0)
-    show_img1 = draw_kps(img1.copy(), kps1)
-    show_img2 = draw_matches(img0, kps0, midxs0, img1, kps1, midxs1)
+    draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1)
 
-    cv2.imshow('0', show_img0)
-    cv2.imshow('1', show_img1)
-    cv2.imshow('2', show_img2)
-    cv2.waitKey(0)
+    # draw_kps(img0, kps0, color=(0,0,255))
+    # draw_kps(img1, kps1, color=(0,0,255))
+    # show_img = draw_matches(img0, kps0, midxs0, img1, kps1, midxs1)
+    # cv2.imshow('2', show_img)
+    # cv2.waitKey(0)

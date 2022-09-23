@@ -4,8 +4,10 @@ import pickle
 from scipy.spatial import transform
 
 class Camera(object):
-    def __init__(self, K: np.array):
+    def __init__(self, K: np.array, width=640, height=480):
         self.K = K
+        self.width = 640
+        self.height = 480
 
         self.fx = self.K[0, 0]
         self.fy = self.K[1, 1]
@@ -21,8 +23,8 @@ class Camera(object):
 
     def project_Pw2uv(self, Tcw, Pw):
         Tcw = Tcw[:3, :]
-        Pw = np.concatenate((Pw, np.ones((Pw.shape[0], 1))), axis=1)
-        uv = ((self.K.dot(Tcw)).dot(Pw.T)).T
+        Pw_homo = np.concatenate((Pw, np.ones((Pw.shape[0], 1))), axis=1)
+        uv = ((self.K.dot(Tcw)).dot(Pw_homo.T)).T
         uv[:, :2] = uv[:, :2] / uv[:, 2:3]
         depth = uv[:, 2]
         uv = uv[:, :2]
@@ -117,10 +119,10 @@ class Camera(object):
 
         return Pc, draw_link
 
-def draw_kps(img, kps):
+def draw_kps(img, kps, color=(0, 255, 0), radius=3, thickness=1):
     for kp in kps:
         x, y = int(kp[0]), int(kp[1])
-        cv2.circle(img, (x, y), radius=3, color=(0, 255, 0), thickness=1)
+        cv2.circle(img, (x, y), radius=radius, color=color, thickness=thickness)
     return img
 
 def draw_matches(img0, kps0, midxs0, img1, kps1, midxs1):
@@ -131,8 +133,8 @@ def draw_matches(img0, kps0, midxs0, img1, kps1, midxs1):
         x0, y0 = int(kps0[idx0][0]), int(kps0[idx0][1])
         x1, y1 = int(kps1[idx1][0]), int(kps1[idx1][1])
         x1 = x1 + w_shift
-        cv2.circle(img_concat, (x0, y0), radius=3, color=(255, 0, 0), thickness=1)
-        cv2.circle(img_concat, (x1, y1), radius=3, color=(255, 0, 0), thickness=1)
+        # cv2.circle(img_concat, (x0, y0), radius=3, color=(255, 0, 0), thickness=1)
+        # cv2.circle(img_concat, (x1, y1), radius=3, color=(255, 0, 0), thickness=1)
         cv2.line(img_concat, (x0, y0), (x1, y1), color=(0, 255, 0), thickness=1)
 
     return img_concat

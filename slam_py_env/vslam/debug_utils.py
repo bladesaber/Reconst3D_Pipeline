@@ -2,91 +2,78 @@ import cv2
 import numpy as np
 import open3d as o3d
 from scipy.spatial import transform
+from copy import copy
 
-from slam_py_env.vslam.extractor import ORBExtractor
+from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
 from slam_py_env.vslam.utils import draw_matches, draw_matches_check, draw_kps
-from reconstruct.utils.utils import rotationMat_to_eulerAngles_scipy
-from slam_py_env.vslam.vo_utils import EnvSaveObj1
-from slam_py_env.vslam.utils import Camera, EpipolarComputer
+from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
 
-def EnvEstimateTcw():
-    env: EnvSaveObj1 = EnvSaveObj1.load('/home/psdz/HDD/quan/slam_ws/debug/20220921_171014.pkl')
-    camera: Camera = env.camera
+class Frame(object):
+    def __init__(self, kps, descs, rgb):
+        self.kps = kps
+        self.descs = descs
+        self.rgb = rgb
 
-    print(env.frame0_name)
-    print(env.frame1_name)
+    def update(self, desc, midxs):
+        self.descs[midxs] = desc
 
-    K = camera.K
-    Tc0w = env.frame0_Tcw
-    Tc1w = env.frame1_Tcw
-
-    rgb_img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/184.png')
-    depth_img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/depth/184.png', cv2.IMREAD_UNCHANGED)
-    rgb_img1 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/191.png')
-
-    extractor = ORBExtractor(nfeatures=300)
-    epipoler = EpipolarComputer()
-
-    img0_gray = cv2.cvtColor(rgb_img0, cv2.COLOR_BGR2GRAY)
-    kps0_cv = extractor.extract_kp(img0_gray)
-    desc0 = extractor.extract_desc(img0_gray, kps0_cv)
-    kps0 = cv2.KeyPoint_convert(kps0_cv)
-    kps0_int = np.round(kps0).astype(np.int64)
-
-    img1_gray = cv2.cvtColor(rgb_img1, cv2.COLOR_BGR2GRAY)
-    kps1_cv = extractor.extract_kp(img1_gray)
-    desc1 = extractor.extract_desc(img1_gray, kps1_cv)
-    kps1 = cv2.KeyPoint_convert(kps1_cv)
-
-    (midxs0, midxs1), _ = extractor.match(desc0, desc1, thre=0.5)
-
-    depth_img = depth_img0.copy()
-    depth_img = depth_img / 5000.0
-    depth_img[depth_img == 0.0] = np.nan
-
-    depth = depth_img[kps0_int[midxs0][:, 1], kps0_int[midxs0][:, 0]]
-    valid_nan_bool = ~np.isnan(depth)
-    midxs0 = midxs0[valid_nan_bool]
-    midxs1 = midxs1[valid_nan_bool]
-    depth = depth[valid_nan_bool]
-
-    valid_depth_max_bool = depth < 10.0
-    midxs0 = midxs0[valid_depth_max_bool]
-    midxs1 = midxs1[valid_depth_max_bool]
-    depth = depth[valid_depth_max_bool]
-
-    valid_depth_min_bool = depth > 0.1
-    midxs0 = midxs0[valid_depth_max_bool]
-    midxs1 = midxs1[valid_depth_max_bool]
-    depth = depth[valid_depth_min_bool]
-
-    mkps0 = kps0[midxs0]
-    masks = np.bitwise_and(
-        np.bitwise_and(mkps0[:, 0] > 400.0, mkps0[:, 0] < 600.0),
-        np.bitwise_and(mkps0[:, 1] > 230.0, mkps0[:, 1] < 330.0),
-    )
-    midxs0 = midxs0[masks]
-    midxs1 = midxs1[masks]
-    depth = depth[masks]
-
-    mkps0 = kps0[midxs0]
-    mkps1 = kps1[midxs1]
-
-    # show_img = draw_matches(rgb_img0, kps0, midxs0, rgb_img1, kps1, midxs1)
-    # cv2.imshow('d', show_img)
-    # cv2.waitKey(0)
-
-    uvd = np.concatenate([mkps0, depth.reshape((-1, 1))], axis=1)
-    Pcs = camera.project_uvd2Pc(uvd)
-    Pws = camera.project_Pc2Pw(Tc0w, Pcs)
-
-    masks, Tc1w_pred = epipoler.compute_pose_3d2d(
-        camera.K, Pws, mkps1, max_err_reproj=2.0
+def test():
+    dataloader = ICL_NUIM_Loader(
+        association_path='/home/psdz/HDD/quan/slam_ws/traj2_frei_png/associations.txt',
+        dir='/home/psdz/HDD/quan/slam_ws/traj2_frei_png',
+        gts_txt='/home/psdz/HDD/quan/slam_ws/traj2_frei_png/traj2.gt.freiburg'
     )
 
-    print(Tc1w)
-    print(Tc1w_pred)
-    print(env.Tcw_gt)
+    extractor = ORBExtractor_BalanceIter(nfeatures=300, balance_iter=5, radius=15)
+
+    t_step = 0
+
+    status, (img0_rgb, _, _) = dataloader.get_rgb()
+    img0_gray = cv2.cvtColor(img0_rgb, cv2.COLOR_RGB2GRAY)
+    kps0, descs0 = extractor.extract_kp_desc(img0_gray)
+    keyframe = Frame(kps=kps0, descs=descs0.copy(), rgb=img0_rgb)
+    keyframe_old = Frame(kps=kps0, descs=descs0.copy(), rgb=img0_rgb)
+    lastframe = keyframe
+
+    while status:
+        t_step += 1
+        status, (img_rgb, _, _) = dataloader.get_rgb()
+
+        # print('ddd: ',np.sum((keyframe.descs - keyframe_old.descs)))
+
+        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+        kps, descs = extractor.extract_kp_desc(img_gray)
+
+        (midxs0_key, midxs1_key), _ = extractor.match(keyframe.descs, descs, match_thre=0.5)
+        (midxs0_key_old, midxs1_key_old), _ = extractor.match(keyframe_old.descs, descs, match_thre=0.5)
+        print('sad: ',midxs0_key.shape[0])
+
+        keyframe.update(descs[midxs1_key], midxs0_key)
+        img_rgb_cur = img_rgb.copy()
+        draw_kps(img_rgb_cur, kps, color=(0,0,255))
+
+        key_rgb = keyframe.rgb.copy()
+        draw_kps(key_rgb, keyframe.kps, color=(0,0,255))
+        show_img_key = draw_matches(key_rgb, keyframe.kps, midxs0_key, img_rgb_cur.copy(), kps, midxs1_key)
+        # show_img = show_img_key
+
+        show_img_key_old = draw_matches(
+            keyframe_old.rgb.copy(), keyframe_old.kps, midxs0_key_old,
+            img_rgb.copy(), kps, midxs1_key_old
+        )
+        show_img = np.concatenate([show_img_key, show_img_key_old], axis=0)
+
+        # (midxs0_last, midxs1_last), _ = extractor.match(lastframe.descs, descs, match_thre=0.5)
+        # show_img_last = draw_matches(lastframe.rgb.copy(), lastframe.kps, midxs0_last, img_rgb_cur.copy(), kps, midxs1_last)
+        # show_img = np.concatenate([show_img_key, show_img_last], axis=0)
+
+        cv2.imshow('d', cv2.cvtColor(show_img, cv2.COLOR_RGB2BGR))
+        key = cv2.waitKey(0)
+        if key == ord('q'):
+            break
+
+        lastframe = Frame(kps=kps, descs=descs, rgb=img_rgb)
 
 if __name__ == '__main__':
-    EnvEstimateTcw()
+    test()
+

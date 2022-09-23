@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import pickle
-from datetime import datetime
 import os
 from copy import copy, deepcopy
 
@@ -11,7 +9,7 @@ from slam_py_env.vslam.utils import draw_kps, draw_matches
 from slam_py_env.vslam.utils import draw_matches_check, draw_kps_match
 from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter, ORBExtractor
 from slam_py_env.vslam.utils import EpipolarComputer
-from slam_py_env.vslam.vo_utils import Frame, MapPoint
+from slam_py_env.vslam.vo_utils import Frame, MapPoint, Landmarker
 from slam_py_env.vslam.vo_utils import EnvSaveObj1
 
 np.set_printoptions(suppress=True)
@@ -167,14 +165,20 @@ class ORBVO_MONO(object):
 
         return frame1, (show_img, mapPoints_track, mapPoints_new)
 
-class ORBVO_RGBD(object):
+class ORBVO_RGBD_Frame(object):
+    '''
+    TODO: ******
+    基于frame的跟踪方式必须依赖于关键帧，但为了节省资源必须限制关键帧的数量。
+    所以在跟踪过程中，帧与帧之间的关联信息是有上限的，而且上限不高。另外由于
+    ORB特征对旋转等鲁棒性不足，导致大量的重复点与重复关键帧的存在。效果不佳。
+    '''
     INIT_IMAGE = 1
     TRACKING = 2
 
     def __init__(self, camera: Camera, debug_dir=None):
         self.camera = camera
 
-        self.orb_extractor = ORBExtractor_BalanceIter(nfeatures=300, balance_iter=5, radius=15)
+        self.orb_extractor = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)
         self.orb_match_thre = 0.5
 
         self.epipoler = EpipolarComputer()
@@ -189,7 +193,7 @@ class ORBVO_RGBD(object):
         self.status = self.INIT_IMAGE
         self.depth_max = 10.0
         self.depth_min = 0.1
-        self.need_frame_thre = 0.25
+        self.need_frame_thre = 30
 
         ### todo be careful, max reproject error is senseitive
         ### 调整最大映射误差并无法解决问题，这是关于回召（RANSAC）与最大误差之间的权衡
@@ -234,12 +238,13 @@ class ORBVO_RGBD(object):
         frame1 = Frame(img_gray, kps1, descs1, t_step, t_step, img_rgb=rgb_img)
 
         (midxs0, midxs1), (_, umidxs1) = self.orb_extractor.match(
-            frame0.descs, descs1, thre=self.orb_match_thre
+            frame0.descs, descs1, match_thre=self.orb_match_thre
         )
+        frame0.update_descs(midxs0, descs1[midxs1])
         print('[DEBUG]: Step:%d Match kps_num:%d' % (t_step, midxs0.shape[0]))
 
         ### ------ estimate Tcw
-        Tcw, (masks, correct_match_num), (mapPoints_track, ) = self.estimate_Tcw(
+        Tcw, (masks, point_match_num), (mapPoints_track, ) = self.estimate_Tcw(
             frame0, frame1, midxs0, midxs1,
             ref_Tcw=self.last_frame.Tcw
             # ref_Tcw=None
@@ -248,11 +253,9 @@ class ORBVO_RGBD(object):
         ### ------ create points for new frame
         mapPoints_new = []
 
-        tracking_ratio = correct_match_num/float(kps1.shape[0])
-        print('[DEBUG]: Tracking Ratio: %f' % tracking_ratio)
-
-        create_new_frame = Frame
-        if tracking_ratio < self.need_frame_thre:
+        print('[DEBUG]: Point Match Num: %d' % point_match_num)
+        create_new_frame = False
+        if point_match_num < self.need_frame_thre:
             rest_idxs = np.concatenate([midxs1[~masks], umidxs1])
             mapPoints_new = self.create_mapPoint(
                 frame1, rest_idxs,
@@ -269,9 +272,12 @@ class ORBVO_RGBD(object):
         self.trajectory.append(frame1.Tcw)
 
         ### --- debug
+        frame0_rgb, frame1_rgb = frame0.img_rgb.copy(), frame1.img_rgb.copy()
+        draw_kps(frame0_rgb, frame0.kps, color=(0,0,255))
+        draw_kps(frame1_rgb, frame1.kps, color=(0, 0, 255))
         show_img = draw_matches(
-            frame0.img_rgb.copy(), frame0.kps, midxs0,
-            frame1.img_rgb.copy(), frame1.kps, midxs1
+            frame0_rgb, frame0.kps, midxs0,
+            frame1_rgb, frame1.kps, midxs1
         )
 
         ### ------ for debug
@@ -376,3 +382,179 @@ class ORBVO_RGBD(object):
                      midxs0=midxs0, midxs1=midxs1, Tcw_gt=Tcw_gt,
                      camera=camera, debug_dir=self.debug_dir)
         EnvSaveObj1.save(save_path, obj)
+
+class ORBVO_RGBD_MapP(object):
+    INIT_IMAGE = 1
+    TRACKING = 2
+
+    def __init__(self, camera: Camera, debug_dir=None):
+        self.camera = camera
+
+        self.orb_extractor = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)
+        self.orb_match_thre = 0.5
+
+        self.epipoler = EpipolarComputer()
+        self.landmarker = Landmarker()
+
+        self.t_step = 0
+        self.trajectory = []
+        self.last_frame = None
+
+        self.status = self.INIT_IMAGE
+        self.depth_max = 10.0
+        self.depth_min = 0.1
+        self.need_keyPosition_thre = 50
+
+        ### todo be careful, max reproject error is senseitive
+        ### 调整最大映射误差并无法解决问题，这是关于回召（RANSAC）与最大误差之间的权衡
+        self.PnPRansac_max_reproject_error = 2.0
+
+        self.debug_dir = debug_dir
+
+    def run_INIT_IMAGE(self, rgb_img, depth_img, Tcw):
+        t_step = self.t_step
+        print('[DEBUG]: Running INIT_IMAGE Process t:%d' % t_step)
+
+        img_gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
+        kps0, descs0 = self.orb_extractor.extract_kp_desc(img_gray)
+        print('[DEBUG]: Creating Kps: %d' % kps0.shape[0])
+
+        frame0 = Frame(img_gray, kps0, descs0, t_step, t_step, img_rgb=rgb_img)
+        frame0.set_Tcw(Tcw=Tcw)
+
+        Pws, Pws_idxs = self.compute_Pws(
+            kps0, kps_idxs=np.arange(0, kps0.shape[0], 1), Tcw=Tcw,
+            depth_img=depth_img, depth_min=self.depth_min, depth_max=self.depth_max
+        )
+        descs0_new = descs0[Pws_idxs]
+        mapPoints_new = self.landmarker.add_tracking_store(Pws, descs0_new, t_step)
+        print('[DEBUG]: Create New KeyFrame With Points: %d' % (len(mapPoints_new)))
+
+        self.trajectory.append(frame0.Tcw)
+        self.last_frame = frame0
+
+        show_img = draw_kps(frame0.img_rgb.copy(), frame0.kps)
+        return frame0, (show_img, mapPoints_new, )
+
+    def run_TRACKING(self, rgb_img, depth_img, Tcw_gt=None):
+        t_step = self.t_step
+        print('[DEBUG]: Running TRACKING Process t:%d' % t_step)
+
+        ### --- init
+        img_gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
+        kps1, descs1 = self.orb_extractor.extract_kp_desc(img_gray)
+        print('[DEBUG]: Creating Kps: %d'%kps1.shape[0])
+
+        frame1 = Frame(img_gray, kps1, descs1, t_step, t_step, img_rgb=rgb_img)
+
+        (midxs0, midxs1), (umidxs1, ) = self.orb_extractor.match_from_project(
+            Pws0=self.landmarker.Pw_store,
+            descs0=self.landmarker.desc_store,
+            uvs1=kps1, descs1=descs1,
+            Tcw1_init=self.last_frame.Tcw,
+            depth_thre=10.0, radius=3.0, dist_thre=10.0,
+            camera=self.camera
+        )
+        print('[DEBUG]: Step:%d Match kps_num:%d' % (t_step, midxs0.shape[0]))
+
+        Tcw, masks, (mapPoints_track,) = self.estimate_Tcw(
+            self.landmarker.Pw_store, kps1, midxs0, midxs1,
+            ref_Tcw=self.last_frame.Tcw
+            # ref_Tcw=None
+        )
+        print('[DEBUG]: Point Match Num: %d' % masks.sum())
+
+        self.landmarker.update_tracking_store(
+            midxs=midxs0[masks], new_descs=descs1, t_step=t_step
+        )
+
+        mapPoints_new = []
+        add_keyPosition = False
+        if len(mapPoints_track)< self.need_keyPosition_thre:
+            rest_idxs = np.concatenate([midxs1[~masks], umidxs1])
+            Pws_new, Pws_idxs = self.compute_Pws(
+                kps1, kps_idxs=rest_idxs, Tcw=Tcw,
+                depth_img=depth_img, depth_max=self.depth_max, depth_min=self.depth_min
+            )
+
+            descs_new = descs1[Pws_idxs]
+
+            mapPoints_new = self.landmarker.add_tracking_store(Pws_new, descs_new, t_step)
+            print('[DEBUG]: Create New KeyFrame With Points: %d' % (len(mapPoints_new)))
+
+            add_keyPosition = True
+
+        last_frame = self.last_frame
+        self.last_frame = frame1
+        self.trajectory.append(frame1.Tcw)
+
+        ### --- debug
+        frame0_rgb, frame1_rgb = last_frame.img_rgb.copy(), frame1.img_rgb.copy()
+        draw_kps(frame0_rgb, last_frame.kps, color=(0,0,255))
+        draw_kps(frame1_rgb, frame1.kps, color=(0, 0, 255))
+        show_img = draw_matches(
+            frame0_rgb, last_frame.kps, midxs0,
+            frame1_rgb, frame1.kps, midxs1
+        )
+
+        ### ------ for debug
+        if Tcw_gt is not None:
+            Twc_gt = np.linalg.inv(Tcw_gt)
+            loss = np.linalg.norm(Twc_gt[:3, 3] - frame1.Twc[:3, 3], ord=2)
+            print('[DEBUG]: Loss:%f' % loss)
+
+            if loss > 1.0:
+                print('************* WARNING *******************')
+                print('[DEBUG]: LOSS IS TOO LARGE')
+
+        return frame1, (show_img, mapPoints_track, mapPoints_new, add_keyPosition)
+
+    def estimate_Tcw(self, Pws, kps1, midxs0, midxs1, ref_Tcw):
+        tracking_Pws = Pws[midxs0]
+        kps1_uv = kps1[midxs1]
+
+        masks, Tcw = self.epipoler.compute_pose_3d2d(
+            self.camera.K, tracking_Pws, kps1_uv, max_err_reproj=self.PnPRansac_max_reproject_error, Tcw_ref=ref_Tcw
+        )
+        print('[DEBUG]: Step:%d PoseEstimate CorrectMatch_num:%d' % (self.t_step, masks.sum()))
+
+        mapPoints_track = []
+        for mask, midx0 in zip(masks, midxs0):
+            if mask:
+                key = self.landmarker.mapPoint_key[midx0]
+                mapPoints_track.append(
+                    self.landmarker.mapPoint_store[key]
+                )
+
+        return Tcw, masks, (mapPoints_track, )
+
+    def compute_Pws(
+            self, kps, kps_idxs, Tcw,
+            depth_img, depth_max, depth_min
+    ):
+        kps_int = np.round(kps).astype(np.int64)
+        depth = depth_img[kps_int[:, 1], kps_int[:, 0]]
+
+        valid_nan_bool = ~np.isnan(depth)
+        kps_idxs = kps_idxs[valid_nan_bool]
+        depth = depth[valid_nan_bool]
+
+        valid_depth_max_bool = depth < depth_max
+        kps_idxs = kps_idxs[valid_depth_max_bool]
+        depth = depth[valid_depth_max_bool]
+
+        valid_depth_min_bool = depth > depth_min
+        kps_idxs = kps_idxs[valid_depth_min_bool]
+        depth = depth[valid_depth_min_bool]
+
+        kps = kps[kps_idxs]
+        print('[DEBUG]: Step:%d Create Point_num:%d' % (self.t_step, kps_idxs.shape[0]))
+
+        uvd = np.concatenate([kps, depth.reshape((-1, 1))], axis=1)
+        Pcs = self.camera.project_uvd2Pc(uvd)
+        Pws = self.camera.project_Pc2Pw(Tcw, Pcs)
+
+        return Pws, kps_idxs
+
+if __name__ == '__main__':
+    pass
