@@ -447,12 +447,13 @@ class ORBVO_RGBD_MapP(object):
 
         frame1 = Frame(img_gray, kps1, descs1, t_step, t_step, img_rgb=rgb_img)
 
-        (midxs0, midxs1), (umidxs1, ) = self.orb_extractor.match_from_project(
+        print('[DEBUG]: Step:%d MapPoint Store:%d' % (t_step, self.landmarker.Pw_store.shape[0]))
+        (midxs0, midxs1), (umidxs1, ), uvs0 = self.orb_extractor.match_from_project(
             Pws0=self.landmarker.Pw_store,
             descs0=self.landmarker.desc_store,
             uvs1=kps1, descs1=descs1,
             Tcw1_init=self.last_frame.Tcw,
-            depth_thre=10.0, radius=3.0, dist_thre=10.0,
+            depth_thre=10.0, radius=8.0, dist_thre=100.0,
             camera=self.camera
         )
         print('[DEBUG]: Step:%d Match kps_num:%d' % (t_step, midxs0.shape[0]))
@@ -462,16 +463,20 @@ class ORBVO_RGBD_MapP(object):
             ref_Tcw=self.last_frame.Tcw
             # ref_Tcw=None
         )
-        print('[DEBUG]: Point Match Num: %d' % masks.sum())
+        print('[DEBUG]: Point Match Num: %d Tracking Num:%d' % (masks.sum(), len(mapPoints_track)))
+        frame1.set_Tcw(Tcw)
 
         self.landmarker.update_tracking_store(
-            midxs=midxs0[masks], new_descs=descs1, t_step=t_step
+            midxs=midxs0[masks], new_descs=descs1[midxs1][masks], t_step=t_step
         )
+
+        self.landmarker.culling_tracking_store(t_step, t_step_thre=200, seen_thre=3)
 
         mapPoints_new = []
         add_keyPosition = False
         if len(mapPoints_track)< self.need_keyPosition_thre:
-            rest_idxs = np.concatenate([midxs1[~masks], umidxs1])
+            # rest_idxs = np.concatenate([midxs1[~masks], umidxs1], axis=0)
+            rest_idxs = umidxs1
             Pws_new, Pws_idxs = self.compute_Pws(
                 kps1, kps_idxs=rest_idxs, Tcw=Tcw,
                 depth_img=depth_img, depth_max=self.depth_max, depth_min=self.depth_min
@@ -484,18 +489,15 @@ class ORBVO_RGBD_MapP(object):
 
             add_keyPosition = True
 
-        last_frame = self.last_frame
         self.last_frame = frame1
         self.trajectory.append(frame1.Tcw)
 
         ### --- debug
-        frame0_rgb, frame1_rgb = last_frame.img_rgb.copy(), frame1.img_rgb.copy()
-        draw_kps(frame0_rgb, last_frame.kps, color=(0,0,255))
-        draw_kps(frame1_rgb, frame1.kps, color=(0, 0, 255))
-        show_img = draw_matches(
-            frame0_rgb, last_frame.kps, midxs0,
-            frame1_rgb, frame1.kps, midxs1
-        )
+        show_img = frame1.img_rgb.copy()
+        # draw_kps(show_img, kps1[umidxs1], color=(0, 0, 255))
+        draw_kps(show_img, uvs0, color=(0, 0, 255), radius=8)
+        draw_kps(show_img, kps1[umidxs1], color=(0, 255, 0), radius=2)
+        draw_kps(show_img, kps1[midxs1], color=(255, 0, 0), thickness=1, radius=2)
 
         ### ------ for debug
         if Tcw_gt is not None:
@@ -529,10 +531,11 @@ class ORBVO_RGBD_MapP(object):
         return Tcw, masks, (mapPoints_track, )
 
     def compute_Pws(
-            self, kps, kps_idxs, Tcw,
+            self,
+            kps, kps_idxs, Tcw,
             depth_img, depth_max, depth_min
     ):
-        kps_int = np.round(kps).astype(np.int64)
+        kps_int = np.round(kps[kps_idxs]).astype(np.int64)
         depth = depth_img[kps_int[:, 1], kps_int[:, 0]]
 
         valid_nan_bool = ~np.isnan(depth)

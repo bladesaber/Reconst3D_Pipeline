@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from slam_py_env.vslam.utils import Camera
-from slam_py_env.vslam.vo_orb import ORBVO_RGBD_Frame
+from slam_py_env.vslam.vo_orb import ORBVO_RGBD_Frame, ORBVO_RGBD_MapP
 from slam_py_env.vslam.dataloader import KITTILoader
 from slam_py_env.vslam.dataloader import TumLoader
 from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
@@ -30,13 +30,14 @@ def test_vo_rgbd():
     )
 
     camera = Camera(K=dataloader.K)
-    vo = ORBVO_RGBD_Frame(camera=camera, debug_dir='/home/psdz/HDD/quan/slam_ws/debug')
+    # vo = ORBVO_RGBD_Frame(camera=camera, debug_dir='/home/psdz/HDD/quan/slam_ws/debug')
+    vo = ORBVO_RGBD_MapP(camera=camera, debug_dir='/home/psdz/HDD/quan/slam_ws/debug')
 
     class Visulizer(MapStepVisulizer):
         def __init__(self):
             super(Visulizer, self).__init__()
 
-            self.update_mapPoint_ctr = False
+            self.update_mapPoint_ctr = True
             self.vis.register_key_callback(ord('1'), self.update_mapPoints_status)
             self.vis.register_key_callback(ord('2'), self.update_scence_status)
 
@@ -79,17 +80,19 @@ def test_vo_rgbd():
 
                 if self.update_mapPoint_ctr:
                     self.update_mapPoints(mappoints_new, np.array([0.0, 1.0, 1.0]))
-                    self.update_mapPoint_ctr = False
+                    # self.update_mapPoint_ctr = False
+                    pass
 
                 if cur_vo_status == vo.INIT_IMAGE:
-                    self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
+                    # self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
+                    pass
 
                 elif cur_vo_status == vo.TRACKING:
-                    self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
+                    # self.update_create_mapPoints(mappoints_new, np.array([0.0, 1.0, 0.0]))
                     self.update_track_mapPoints(mappoints_track, np.array([1.0, 0.0, 0.0]))
 
-                    if is_new_frame:
-                        self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 1.0, 0.0]), scale=0.08)
+                    # if is_new_frame:
+                    #     self.add_camera(frame.Tcw, vo.camera, color=np.array([0.0, 1.0, 0.0]), scale=0.08)
 
                 print('[DEBUG]: GT Twc: \n', Twc_gt)
                 print('[DEBUG]: PRED Twc: \n', frame.Twc)

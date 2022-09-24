@@ -89,16 +89,23 @@ class Landmarker(object):
     def culling_tracking_store(self, t_step, t_step_thre, seen_thre):
         t_step_dist = t_step - self.seen_Laststep[:, 1]
         keep_bool = t_step_dist<t_step_thre
+        culling_num = (~keep_bool).sum()
 
+        old_key = self.mapPoint_key[~keep_bool]
         self.Pw_store = self.Pw_store[keep_bool]
         self.desc_store = self.desc_store[keep_bool]
         self.seen_Laststep = self.seen_Laststep[keep_bool]
+        self.mapPoint_key = self.mapPoint_key[keep_bool]
+        print('[DEBUG]: Removing %d MapPoint From Store, Store Num: %d'%(culling_num, self.Pw_store.shape[0]))
 
-        old_key = self.mapPoint_key[~keep_bool]
+        delete_num = 0
         for key in old_key:
             map_point:MapPoint = self.mapPoint_store[key]
             if map_point.be_seen<seen_thre:
                 del self.mapPoint_store[key]
+
+                delete_num += 1
+        print('[DEBUG]: Delete MapPoint Num: %d'%delete_num)
 
     def create_map_point(self, Pw, t_step):
         map_point = MapPoint(Pw=Pw, mid=self.MapPoint_id, t_step=t_step)

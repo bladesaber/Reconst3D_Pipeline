@@ -147,37 +147,40 @@ class ORBExtractor_BalanceIter(ORBExtractor):
         uvs0 = uvs0[valid_y_bool]
         visable_idxs = visable_idxs[valid_y_bool]
 
-        uvs1_kdtree = KDTree(uvs1)
-        neighbour_idxs = uvs1_kdtree.query_ball_point(uvs0, r=radius)
+        kdtree = KDTree(uvs0)
+        neighbour_idxs = kdtree.query_ball_point(uvs1, r=radius)
 
-        ### todo neighbour_idxs 这个 idx 用于uvs1
+        midxs0, midxs1 = [], []
+        umidxs1 = []
+        cross_checks = np.ones((Pws0.shape[0],), dtype=np.bool)
 
-        # midxs0, midxs1 = [], []
-        # umidxs1 = []
-        # cross_checks = np.ones((Pws0.shape[0],), dtype=np.bool)
-        # for idx1, (search_idxs, uv1, desc1) in enumerate(zip(neighbour_idxs, uvs1, descs1)):
-        #     idxs0 = visable_idxs[search_idxs]
-        #     cross = cross_checks[search_idxs]
-        #     idxs0 = idxs0[cross]
-        #
-        #     if idxs0.shape[0]>0:
-        #         desc0_batch = descs0[idxs0]
-        #         dists = self.compute_dist_custom(desc1, desc0_batch)
-        #
-        #         select_id = np.argmin(dists)
-        #         if dists[select_id]<dist_thre:
-        #             select_idx0 = idxs0[select_id]
-        #             cross_checks[select_idx0] = False
-        #
-        #             midxs0.append(select_idx0)
-        #             midxs1.append(idx1)
-        #             continue
-        #
-        #     umidxs1.append(idx1)
-        #
-        # return (midxs0, midxs1), (umidxs1, )
+        for idx1, search_idxs in enumerate(neighbour_idxs):
+            idxs0 = visable_idxs[search_idxs]
+            cross = cross_checks[search_idxs]
+            idxs0 = idxs0[cross]
 
-        return uvs0
+            if idxs0.shape[0]>0:
+                desc0_batch = descs0[idxs0]
+                desc1 = descs1[idx1:idx1+1, :]
+
+                matches = self.matcher.match(desc1, desc0_batch)
+                if len(matches)>0:
+                    match = matches[0]
+                    if match.distance < dist_thre:
+                        select_idx0 = idxs0[match.trainIdx]
+                        cross_checks[select_idx0] = False
+
+                        midxs0.append(select_idx0)
+                        midxs1.append(idx1)
+                        continue
+
+            umidxs1.append(idx1)
+
+        umidxs1 = np.array(umidxs1)
+        midxs0 = np.array(midxs0)
+        midxs1 = np.array(midxs1)
+
+        return (midxs0, midxs1), (umidxs1, ), uvs0
 
     def compute_dist_custom(self, desc, desc_batch):
         dists = np.linalg.norm(desc_batch - desc, ord=2, axis=1)
@@ -240,35 +243,37 @@ class LKExtractor(object):
         )
 
 if __name__ == '__main__':
-    extractor1 = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)
-
-    img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/229.png')
-    img0_gray = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
-    kps0, desc0 = extractor1.extract_kp_desc(img0_gray)
-
-    img1 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/233.png')
-    img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    kps1, desc1 = extractor1.extract_kp_desc(img1_gray.copy())
-
-    print(kps0.shape, kps1.shape)
-    # (midxs0, midxs1), _ = extractor1.match(desc0, desc1, match_thre=0.5)
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = matcher.match(desc0, desc1)
-    midxs0, midxs1 = [], []
-    for m in matches:
-        query_idx = m.queryIdx
-        train_idx = m.trainIdx
-        midxs0.append(query_idx)
-        midxs1.append(train_idx)
-    midxs0 = np.array(midxs0)
-    midxs1 = np.array(midxs1)
-
-    print(midxs0.shape)
-
-    draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1)
+    # extractor1 = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)
+    #
+    # img0 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/229.png')
+    # img0_gray = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
+    # kps0, desc0 = extractor1.extract_kp_desc(img0_gray)
+    #
+    # img1 = cv2.imread('/home/psdz/HDD/quan/slam_ws/traj2_frei_png/rgb/233.png')
+    # img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    # kps1, desc1 = extractor1.extract_kp_desc(img1_gray.copy())
+    #
+    # print(kps0.shape, kps1.shape)
+    # # (midxs0, midxs1), _ = extractor1.match(desc0, desc1, match_thre=0.5)
+    # matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    # matches = matcher.match(desc0, desc1)
+    # midxs0, midxs1 = [], []
+    # for m in matches:
+    #     query_idx = m.queryIdx
+    #     train_idx = m.trainIdx
+    #     midxs0.append(query_idx)
+    #     midxs1.append(train_idx)
+    # midxs0 = np.array(midxs0)
+    # midxs1 = np.array(midxs1)
+    #
+    # print(midxs0.shape)
+    #
+    # draw_matches_check(img0, kps0, midxs0, img1, kps1, midxs1)
 
     # draw_kps(img0, kps0, color=(0,0,255))
     # draw_kps(img1, kps1, color=(0,0,255))
     # show_img = draw_matches(img0, kps0, midxs0, img1, kps1, midxs1)
     # cv2.imshow('2', show_img)
     # cv2.waitKey(0)
+
+    pass

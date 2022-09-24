@@ -37,50 +37,27 @@ kps0, descs0 = extractor.extract_kp_desc(img0_gray)
 kps1, descs1 = extractor.extract_kp_desc(img1_gray)
 
 Pws0, Pws0_idxs = vo.compute_Pws(
-    kps0, kps_idxs=np.arange(0, kps0.shape[0], 1), Tcw=Tc0w,
+    kps0, kps_idxs=np.arange(0, kps0.shape[0]-5, 1), Tcw=Tc0w,
     depth_img=img0_depth, depth_min=vo.depth_min, depth_max=vo.depth_max
 )
 descs0_new = descs0[Pws0_idxs]
 
-# (midxs0, midxs1), (umidxs1, ) = extractor.match_from_project(
-#     Pws0, descs0_new, kps1, descs1,
-#     Tcw1_init=Tc0w,
-#     depth_thre=10.0, radius=3.0, dist_thre=1000.0, camera=camera
-# )
-
-uvs1_pred = extractor.match_from_project(
+(midxs0, midxs1), (umidxs1, ) = extractor.match_from_project(
     Pws0, descs0_new, kps1, descs1,
     Tcw1_init=Tc0w,
-    depth_thre=10.0, radius=3.0, dist_thre=1000.0, camera=camera
+    depth_thre=10.0, radius=5.0, dist_thre=100.0, camera=camera
 )
 
-# show_img_0 = draw_kps(img1_rgb.copy(), uv1_pred)
-# show_img_1 = draw_kps(img1_rgb.copy(), kps1)
-# cv2.imshow('d', show_img_0)
-# cv2.imshow('e', show_img_1)
-# cv2.waitKey(0)
+print(Pws0.shape, midxs0.shape)
 
-kd_tree = KDTree(kps1)
-results = kd_tree.query_ball_point(uvs1_pred, r=3.0)
-for res_idxs in results:
-    uvs1_sub = uvs1_pred[res_idxs]
-
-
-
-# for idx1, (search_idxs, uv1, desc1) in enumerate(zip(neighbour_idxs, kps1, descs1)):
-#     if len(search_idxs)>0:
-#         uv1_pred = uvs1_pred[search_idxs]
-#
-#         img1_rgb_copy = img1_rgb.copy()
-#         draw_kps(img1_rgb_copy, uv1_pred, color=(0,0,255), radius=6, thickness=3)
-#         draw_kps(img1_rgb_copy, [uv1], color=(255, 0, 0), radius=6, thickness=3)
-#
-#         plt.imshow(img1_rgb_copy)
-#         plt.show()
-
-# show_img = draw_matches(img0_rgb.copy(), kps0, midxs0, img1_rgb.copy(), kps1, midxs1)
+# show_img0 = img0_rgb.copy()
+# show_img1 = img1_rgb.copy()
+# draw_kps(show_img0, kps0, color=(0,0,255))
+# draw_kps(show_img1, kps1, color=(0,0,255))
+# show_img = draw_matches(show_img0, kps0, midxs0, show_img1, kps1, midxs1)
 # cv2.imshow('d', show_img)
 # cv2.waitKey(0)
+# draw_matches_check(img0_rgb.copy(), kps0, midxs0, img1_rgb.copy(), kps1, midxs1)
 
 # rgb_img_o3d = o3d.geometry.Image(cv2.cvtColor(img0_rgb, cv2.COLOR_BGR2RGB))
 # depth_img_o3d = o3d.geometry.Image(img0_depth)
