@@ -12,17 +12,21 @@
 #include "g2o/core/sparse_optimizer.h"
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/solvers/eigen//linear_solver_eigen.h"
+#include "g2o/core/optimization_algorithm_factory.h"
 #include "string.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
 
+G2O_USE_OPTIMIZATION_LIBRARY(eigen);
+G2O_USE_OPTIMIZATION_LIBRARY(dense);
+
 template<typename T>
 void PrintfGraphInfo(T& optimizer){
     int edge_count = (optimizer.edges()).size();
     int vertex_count = (optimizer.vertices()).size();
-    std::cout<<"Edge Num: "<<edge_count<<std::endl;
-    std::cout<<"Vertex Num: "<<vertex_count<<std::endl;
+    std::cout<<"[DEBUG-g2o]: Edge Num: "<<edge_count<<std::endl;
+    std::cout<<"[DEBUG-g2o]: Vertex Num: "<<vertex_count<<std::endl;
 }
 
 void declareOptimizerTypes(py::module &m) {

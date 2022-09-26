@@ -4,7 +4,7 @@
 
 #include "iostream"
 #include "g2o/core/sparse_optimizer.h"
-#include "types_test.h"
+#include "g2o_test.h"
 
 using namespace std;
 

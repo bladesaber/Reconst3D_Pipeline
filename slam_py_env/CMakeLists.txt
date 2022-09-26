@@ -25,7 +25,6 @@ include_directories(
         Thirdparty/pybind11
         Thirdparty/pybind11/tools
         ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/core
         ${OpenCV_INCLUDE_DIRS}
         Thirdparty/DBow3/src
 )
@@ -36,7 +35,7 @@ link_directories(
 )
 
 pybind11_add_module(slam_py src/slam_py.cpp
-        src/types_test.cpp
+        src/g2o_test.cpp
 
         Thirdparty/DBow3/src/Vocabulary.cpp
         Thirdparty/DBow3/src/BowVector.cpp

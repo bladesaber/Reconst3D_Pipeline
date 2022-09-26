@@ -2,7 +2,7 @@
 // Created by quan on 2022/7/20.
 //
 
-#include "types_test.h"
+#include "g2o_test.h"
 
 int Test::add(int x, int y) {
     return x+y;
