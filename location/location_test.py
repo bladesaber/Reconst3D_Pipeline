@@ -1,9 +1,8 @@
 import cv2
 import argparse
 from queue import Queue
-import time
 
-from camera.camera_realsense import Camera_RealSense
+from reconstruct.camera.camera_realsense import Camera_RealSense
 from location.posefinder import Calibration_PoseFinder
 import numpy as np
 

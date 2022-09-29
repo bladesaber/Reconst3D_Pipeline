@@ -1,9 +1,8 @@
-import os
 import numpy as np
 import open3d as o3d
 import time
 
-from camera.camera_realsense import Camera_RealSense, Camera_Fake
+from reconstruct.camera.camera_realsense import Camera_Fake
 from reconstruct.open3d_utils import create_intrinsics
 from reconstruct.open3d_utils import create_img_tensor_from_numpy
 

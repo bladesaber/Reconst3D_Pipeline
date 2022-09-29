@@ -1,15 +1,13 @@
 import numpy as np
 import open3d
 from queue import Queue
-import os
 
-from camera.fake_camera import Camera_Fake_2
+from reconstruct.camera.fake_camera import Camera_Fake_2
 from reconstruct.open3d_utils import create_intrinsics
 
 from reconstruct.open3d_utils import create_img_from_numpy
 from reconstruct.open3d_utils import create_rgbd_from_color_depth
 from reconstruct.open3d_utils import create_pcd_from_rgbd
-from reconstruct.open3d_utils import create_OdometryOption
 from reconstruct.open3d_utils import create_scaleable_TSDF
 
 def multiscale_icp(

@@ -14,6 +14,15 @@ from slam_py_env.vslam.vo_utils import EnvSaveObj1
 
 np.set_printoptions(suppress=True)
 
+'''
+重建必须有回环，SLAM可以放弃回环。因此必须要有所取舍。大概有一些规则需要
+遵守：
+1.必须能实时优化所有的回环，因此必须注意两点：
+	a.构建的图关联必须尽量多
+	b.使用的图关联的尽量有效（例如时间跨度尽量的大）
+考虑只有关键位姿保留世界坐标系，非关键位姿保留相对坐标
+'''
+
 class ORBVO_MONO(object):
     '''
     Fail
@@ -297,6 +306,13 @@ class ORBVO_RGBD_Frame(object):
 
         return frame1, (show_img, mapPoints_track, mapPoints_new, create_new_frame)
 
+    '''
+    实验表明，即便深度图正确也需要Bundle Adjustment，这是由于orb特征所找到的特征一般在物体的边角，而边角位置的
+    深度一般突变的。因此，当视图位置变更时，即使大部分的点能基于特征子匹配，其亦无法基于三维点反映射匹配。
+    Bundle Adjustment并不能够找到正确的三维点，但它应该能够收缩帧与帧运动之间的方差，这对于Slam是有益处的，因为
+    Slam并不需要真正意义上正确的地图，在Slam地图上扭曲是不影响机器人到达目的地的。但这在三维重建上是不足够的，
+    所以ICP的融合比不可少。
+    '''
     def estimate_Tcw(self, frame0:Frame, frame1:Frame, midxs0, midxs1, ref_Tcw):
         mapPoints_track = []
 
