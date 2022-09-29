@@ -1,6 +1,6 @@
 import open3d as o3d
 import numpy as np
-import reconstruct.utils.rmsd_kabsch as kabsch_rmsd
+import reconstruct.odometry.utils.rmsd_kabsch as kabsch_rmsd
 import matplotlib.pyplot as plt
 from copy import deepcopy
 import apriltag

@@ -1,19 +1,12 @@
 import open3d as o3d
-import os
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 
 from slam_py_env.vslam.utils import Camera
-from slam_py_env.vslam.vo_orb import ORBVO_RGBD_Frame, ORBVO_RGBD_MapP
-from slam_py_env.vslam.dataloader import KITTILoader
-from slam_py_env.vslam.dataloader import TumLoader
+from slam_py_env.vslam.vo_orb import ORBVO_RGBD_MapP
 from slam_py_env.vslam.dataloader import ICL_NUIM_Loader
 from slam_py_env.vslam.vis_utils import MapStepVisulizer
 
-from slam_py_env.vslam.utils import draw_kps, draw_matches
-from slam_py_env.vslam.utils import draw_matches_check, draw_kps_match
-from reconstruct.utils.utils import rotationMat_to_eulerAngles_scipy
 
 def test_vo_rgbd():
     # dataloader = TumLoader(

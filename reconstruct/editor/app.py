@@ -2,18 +2,13 @@ import os
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
-import threading
-import time
 import argparse
 import numpy as np
 from functools import partial
-import cv2
-import matplotlib.pyplot as plt
-from copy import deepcopy, copy
+from copy import copy
 
-from  reconstruct.editor.custom_gui import InfoCheckbox
-from reconstruct.utils.utils import eulerAngles_to_rotationMat_scipy
-import reconstruct.utils.rmsd_kabsch as kabsch_rmsd
+from reconstruct.odometry.utils import eulerAngles_to_rotationMat_scipy
+
 
 def parse_args():
     parser = argparse.ArgumentParser()

@@ -1,6 +1,14 @@
 from scipy.spatial import transform
 import numpy as np
 
+class Fram(object):
+    def __init__(self, idx, rgb_img, depth_img, rgbd_o3d, Tcw):
+        self.idx = idx
+        self.rgb_img = rgb_img
+        self.depth_img = depth_img
+        self.rgbd_o3d = rgbd_o3d
+        self.Tcw = Tcw
+
 def quaternion_to_rotationMat_scipy(quaternion):
     r = transform.Rotation(quat=quaternion)
     return r.as_matrix()
