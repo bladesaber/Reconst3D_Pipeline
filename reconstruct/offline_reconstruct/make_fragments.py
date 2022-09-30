@@ -366,9 +366,9 @@ class DebugVisulizer(object):
         self.args = args
 
         self.dataloader = RedWoodCamera(
-        dir=args.dataset_dir,
-        intrinsics_path=args.intrinsics_path,
-        scalingFactor=1000.0
+            dir=args.dataset_dir,
+            intrinsics_path=args.intrinsics_path,
+            scalingFactor=1000.0
         )
         self.dataloader.pt = 300
 

@@ -1,13 +1,29 @@
 from scipy.spatial import transform
 import numpy as np
+import open3d as o3d
 
-class Fram(object):
-    def __init__(self, idx, rgb_img, depth_img, rgbd_o3d, Tcw):
+class Frame(object):
+    def __init__(
+            self,
+            idx, t_step,
+            rgb_img, depth_img,
+    ):
         self.idx = idx
+        self.t_step = t_step
         self.rgb_img = rgb_img
         self.depth_img = depth_img
+
+    def set_rgbd_o3d(self, rgbd_o3d, pcd_o3d):
         self.rgbd_o3d = rgbd_o3d
+        self.pcd_o3d = pcd_o3d
+
+    def set_Tcw(self, Tcw):
         self.Tcw = Tcw
+        self.Rcw = self.Tcw[:3, :3]
+        self.tcw = self.Tcw[:3, 3]  # pc = Rcw * pw + tcw
+        self.Rwc = self.Rcw.T
+        self.Ow = -(self.Rwc @ self.tcw)
+        self.Twc = np.linalg.inv(self.Tcw)
 
 def quaternion_to_rotationMat_scipy(quaternion):
     r = transform.Rotation(quat=quaternion)
