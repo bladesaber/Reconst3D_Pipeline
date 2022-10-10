@@ -1,59 +1,93 @@
 import numpy as np
 import open3d as o3d
 
-from reconstruct.camera.fake_camera import RedWoodCamera
-from reconstruct.odometry.utils import eulerAngles_to_rotationMat_scipy
+def icp(
+        Pc0, Pc1,
+        max_iter, dist_threshold,
+        kd_radius=0.02, kd_num=30,
+        max_correspondence_dist=0.01,
+        icp_method='color', init_Tc1c0=np.identity(4),
+        with_info=False
+):
+    if icp_method == "point_to_point":
+        res = o3d.pipelines.registration.registration_icp(
+            Pc0, Pc1,
+            dist_threshold, init_Tc1c0,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter)
+        )
 
-dataloader = RedWoodCamera(
-    dir='/home/quan/Desktop/tempary/redwood/00003',
-    intrinsics_path='/home/quan/Desktop/tempary/redwood/00003/instrincs.json',
-    scalingFactor=1000.0
+    else:
+        Pc0.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=kd_radius, max_nn=kd_num)
+        )
+        Pc1.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=kd_radius, max_nn=kd_num)
+        )
+        res = o3d.pipelines.registration.registration_icp(
+            Pc0, Pc1,
+            dist_threshold, init_Tc1c0,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iter)
+        )
+
+    info = None
+    if with_info:
+        info = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+            Pc0, Pc1, max_correspondence_dist, res.transformation
+        )
+    return res, info
+
+def compute_Tc1c0(
+        Pc0, Pc1,
+        voxelSizes, maxIters,
+        icp_method='point_to_point',
+        init_Tc1c0=np.identity(4),
+):
+    cur_Tc1c0 = init_Tc1c0
+    run_times = len(maxIters)
+
+    for idx in range(run_times):
+        with_info = idx == run_times - 1
+
+        max_iter = maxIters[idx]
+        voxel_size = voxelSizes[idx]
+        dist_threshold = voxel_size * 1.4
+
+        Pc0_down = Pc0.voxel_down_sample(voxel_size)
+        Pc1_down = Pc1.voxel_down_sample(voxel_size)
+
+        res, info = icp(
+            Pc0=Pc0_down, Pc1=Pc1_down,
+            max_iter=max_iter, dist_threshold=dist_threshold,
+            icp_method=icp_method,
+            init_Tc1c0=cur_Tc1c0,
+            kd_radius=voxel_size * 2.0, kd_num=30,
+            max_correspondence_dist=voxel_size * 1.4,
+            with_info=with_info
+        )
+
+        cur_Tc1c0 = res.transformation
+
+    return cur_Tc1c0, info
+
+pcd0: o3d.geometry.PointCloud = o3d.io.read_point_cloud(
+    '/home/quan/Desktop/tempary/redwood/00003/fragments/0_pcd.ply'
+)
+pcd0.colors = o3d.utility.Vector3dVector(
+    np.tile(np.array([[1.0, 0.0, 0.0]]), [np.asarray(pcd0.points).shape[0], 1])
 )
 
-fx = dataloader.K[0, 0]
-fy = dataloader.K[1, 1]
-cx = dataloader.K[0, 2]
-cy = dataloader.K[1, 2]
-K_o3d = o3d.camera.PinholeCameraIntrinsic(
-    width=640, height=480,
-    fx=fx, fy=fy, cx=cx, cy=cy
+pcd1: o3d.geometry.PointCloud = o3d.io.read_point_cloud(
+    '/home/quan/Desktop/tempary/redwood/00003/fragments/1_pcd.ply'
+)
+pcd1.colors = o3d.utility.Vector3dVector(
+    np.tile(np.array([[0.0, 0.0, 1.0]]), [np.asarray(pcd1.points).shape[0], 1])
 )
 
-dataloader.pt = 1
-_, (rgb0_img, depth0_img) = dataloader.get_img()
+Tc1c0 = np.load('/home/quan/Desktop/tempary/redwood/00003/fragments/0_Tcw.npy')
 
-rgb0_o3d = o3d.geometry.Image(rgb0_img)
-depth0_o3d = o3d.geometry.Image(depth0_img)
-rgbd0_o3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
-    color=rgb0_o3d, depth=depth0_o3d,
-    depth_scale=1.0, depth_trunc=2.5,
-    convert_rgb_to_intensity=True
-)
-pcd0_o3d:o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(
-    rgbd0_o3d, K_o3d, extrinsic=np.eye(4)
-)
+Tc1c0, info = compute_Tc1c0(pcd0, pcd1, voxelSizes=[0.05, 0.01], maxIters=[100, 100], init_Tc1c0=Tc1c0)
+pcd0 = pcd0.transform(Tc1c0)
 
-rot_mat = eulerAngles_to_rotationMat_scipy(theta=[3, 5, 3], degress=True)
-Tcw = np.eye(4)
-Tcw[:3, :3] = rot_mat
-
-pcd_np = np.asarray(pcd0_o3d.points)
-pcd_np_homo = np.concatenate([pcd_np, np.ones((pcd_np.shape[0], 1))], axis=1)
-new_pcd_np = (Tcw[:3, :].dot(pcd_np_homo.T)).T
-new_pcd = o3d.geometry.PointCloud()
-new_pcd.points = o3d.utility.Vector3dVector(new_pcd_np)
-new_pcd.colors = o3d.utility.Vector3dVector(
-    np.tile(np.array([[0.0, 0.0, 1.0]]), (new_pcd_np.shape[0], 1))
-)
-
-pcd1_o3d:o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(
-    rgbd0_o3d, K_o3d,
-    # extrinsic=Tcw
-    extrinsic=np.linalg.inv(Tcw)
-)
-num1 = np.asarray(pcd1_o3d.colors).shape[0]
-pcd1_o3d.colors = o3d.utility.Vector3dVector(
-    np.tile(np.array([[1.0, 0.0, 0.0]]), (num1, 1))
-)
-
-o3d.visualization.draw_geometries([pcd1_o3d, new_pcd])
+o3d.visualization.draw_geometries([pcd0, pcd1])

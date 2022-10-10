@@ -1,6 +1,7 @@
 from scipy.spatial import transform
 import numpy as np
 import open3d as o3d
+import pandas as pd
 
 class Frame(object):
     def __init__(
@@ -114,6 +115,51 @@ def xyz_to_ply(point_cloud, filename, rgb=None):
             f.seek(0)
             f.write(ply_header % dict(vert_num=len(point_cloud)))
             f.write(old)
+
+class PCD_utils(object):
+    def rgbd2pcd(
+            self, rgb_img, depth_img,
+            depth_min, depth_max, K,
+            return_concat=False
+    ):
+        h, w, _ = rgb_img.shape
+        rgbs = rgb_img.reshape((-1, 3))/255.
+        ds = depth_img.reshape((-1, 1))
+
+        xs = np.arange(0, w, 1)
+        ys = np.arange(0, h, 1)
+        xs, ys = np.meshgrid(xs, ys)
+        uvs = np.concatenate([xs[..., np.newaxis], ys[..., np.newaxis]], axis=2)
+        uvs = uvs.reshape((-1, 2))
+        uvd_rgbs = np.concatenate([uvs, ds, rgbs], axis=1)
+
+        valid_bool = np.bitwise_and(uvd_rgbs[:, 2]>depth_min, uvd_rgbs[:, 2]<depth_max)
+        uvd_rgbs = uvd_rgbs[valid_bool]
+
+        Kv = np.linalg.inv(K)
+        uvd_rgbs[:, :2] = uvd_rgbs[:, :2] * uvd_rgbs[:, 2:3]
+        uvd_rgbs[:, :3] = (Kv.dot(uvd_rgbs[:, :3].T)).T
+
+        if return_concat:
+            return uvd_rgbs
+
+        return uvd_rgbs[:, :3], uvd_rgbs[:, 3:]
+
+    def pcd2pcd_o3d(self, xyzs, rgbs=None)->o3d.geometry.PointCloud:
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(xyzs)
+        if rgbs is not None:
+            pcd.colors = o3d.utility.Vector3dVector(rgbs)
+        return pcd
+
+    def change_pcdColors(self, pcd:o3d.geometry.PointCloud, rgb):
+        num = np.asarray(pcd.points).shape[0]
+        pcd.colors = o3d.utility.Vector3dVector(
+            np.tile(rgb.reshape((1, 3)), [num, 1])
+        )
+        return pcd
+
+
 
 if __name__ == '__main__':
     eulerAngles_to_rotationMat_scipy([10, 10, 20], degress=True)

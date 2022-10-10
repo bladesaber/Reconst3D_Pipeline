@@ -181,7 +181,7 @@ class Odometry_Visual(object):
 
             rot_c1c0, tvec_c1c0 = self.kabsch_rmsd(Pc0=sample_Pc0, Pc1=sample_Pc1)
 
-            diff_mat = Pc1 - (rot_c1c0.dot(Pc0.T)).T + tvec_c1c0
+            diff_mat = Pc1 - ((rot_c1c0.dot(Pc0.T)).T + tvec_c1c0)
             diff = np.linalg.norm(diff_mat, axis=1, ord=2)
             inlier_bool = diff < max_distance
             n_inlier = inlier_bool.sum()

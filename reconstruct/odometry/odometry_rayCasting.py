@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import open3d as o3d
 import pandas as pd
@@ -6,12 +7,10 @@ import time
 import cv2
 import argparse
 from copy import copy
-import pandas as pd
 
 from reconstruct.camera.fake_camera import RedWoodCamera
 from reconstruct.odometry.utils import Frame
 from reconstruct.odometry.odometry_icp import Odometry_ICP
-from reconstruct.odometry.odometry_visual import Odometry_Visual
 from reconstruct.odometry.vis_utils import OdemVisulizer
 
 class Odometry_RayCasting(object):
@@ -46,7 +45,8 @@ class Odometry_RayCasting(object):
             depth_scale=config['depth_scale'], depth_trunc=config['max_depth_thre'],
             convert_rgb_to_intensity=True
         )
-        pcd_o3d = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_o3d, self.K_o3d)
+        pcd_o3d:o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_o3d, self.K_o3d)
+        pcd_o3d = pcd_o3d.voxel_down_sample(config['voxel_size'])
 
         frame = Frame(idx=t_step, t_step=t_step, rgb_img=rgb_img, depth_img=depth_img)
         frame.set_rgbd_o3d(rgbd_o3d, pcd_o3d)
@@ -85,7 +85,10 @@ class Odometry_RayCasting(object):
             depth_scale=config['depth_scale'], depth_trunc=config['max_depth_thre'],
             convert_rgb_to_intensity=True
         )
-        pcd1_o3d = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd1_o3d, intrinsic=self.K_o3d)
+        pcd1_o3d:o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(
+            rgbd1_o3d, intrinsic=self.K_o3d
+        )
+        pcd1_o3d = pcd1_o3d.voxel_down_sample(config['voxel_size'])
 
         ### ---------
         Tc0w = frame0.Tcw
@@ -104,7 +107,6 @@ class Odometry_RayCasting(object):
         Pcd_ref = o3d.geometry.PointCloud()
         Pcd_ref.points = o3d.utility.Vector3dVector(uvd_rgbs[:, :3])
         Pcd_ref.colors = o3d.utility.Vector3dVector(uvd_rgbs[:, 3:])
-
         Tc1c0, info = self.odom_icp.compute_Tc1c0(
             Pc0=Pcd_ref, Pc1=pcd1_o3d, voxelSizes=[0.05, 0.01], maxIters=[100, 100],
             init_Tc1c0=np.eye(4)
@@ -167,8 +169,6 @@ class Odometry_RayCasting(object):
         img_uvs[ys, xs, :] = (uvd_rgbs[:, 3:] * 255.).astype(np.uint8)
         return img_uvs
 
-    def voxelGrid_pd(self, pcd:o3d.geometry.PointCloud):
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--save_dir', type=str,
@@ -189,6 +189,16 @@ def main():
         scalingFactor=1000.0
     )
 
+    config = {
+        'depth_scale': 1.0,
+        'depth_diff_max': 0.1,
+        'max_depth_thre': 2.5,
+        'min_depth_thre': 0.2,
+        'icp_method': 'point_to_plane',
+        'tsdf_voxel_size': 0.025,
+        'sample_n': 20000,
+        'voxel_size': 0.025
+    }
     odom = Odometry_RayCasting(args, dataloader.K, dataloader.width, dataloader.height)
 
     class DebugVisulizer(OdemVisulizer):
@@ -206,15 +216,6 @@ def main():
         def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
             status_data, (rgb_img, depth_img) = dataloader.get_img()
 
-            config = {
-                'depth_scale': 1.0,
-                'depth_diff_max': 0.1,
-                'max_depth_thre': 2.5,
-                'min_depth_thre': 0.2,
-                'icp_method': 'point_to_plane',
-                'tsdf_voxel_size': 0.01,
-                'sample_n': 20000
-            }
             if status_data:
                 status_run, (frame0, frame1) = odom.step(
                     rgb_img=rgb_img, depth_img=depth_img, t_step=self.t_step,
@@ -276,6 +277,70 @@ def main():
     vis = DebugVisulizer()
     vis.run()
 
-if __name__ == '__main__':
-    main()
+def make_fragment():
+    args = parse_args()
 
+    dataloader = RedWoodCamera(
+        dir=args.dataset_dir,
+        intrinsics_path=args.intrinsics_path,
+        scalingFactor=1000.0
+    )
+
+    config = {
+        'depth_scale': 1.0,
+        'depth_diff_max': 0.1,
+        'max_depth_thre': 2.5,
+        'min_depth_thre': 0.2,
+        'icp_method': 'point_to_plane',
+        'tsdf_voxel_size': 0.025,
+        'sample_n': 20000,
+        'voxel_size': 0.025
+    }
+    odom = Odometry_RayCasting(args, dataloader.K, dataloader.width, dataloader.height)
+
+    t_step = 0
+    fragment = 0
+    while True:
+        status_data, (rgb_img, depth_img) = dataloader.get_img()
+
+        if not status_data:
+            break
+
+        status_run, (_, cur_frame) = odom.step(
+            rgb_img=rgb_img, depth_img=depth_img, t_step=t_step,
+            config=config,
+            init_Tc1c0=np.eye(4)
+        )
+        t_step += 1
+
+        if t_step%300==0:
+            output_pcd = odom.tsdf_model.extract_point_cloud()
+            pcd_path = os.path.join(
+                '/home/quan/Desktop/tempary/redwood/00003/fragments', '%d_pcd.ply' % fragment
+            )
+            o3d.io.write_point_cloud(pcd_path, output_pcd)
+
+            Tcw_file = os.path.join('/home/quan/Desktop/tempary/redwood/00003/fragments', '%d_Tcw' % fragment)
+            np.save(Tcw_file, cur_frame.Tcw)
+
+            odom = Odometry_RayCasting(args, dataloader.K, dataloader.width, dataloader.height)
+
+            t_step = 0
+            fragment += 1
+
+            print('[DEBUG]: Saving PLY %d'%t_step)
+        else:
+            print('[DEBUG]: Processing %d'%t_step)
+
+    output_pcd = odom.tsdf_model.extract_point_cloud()
+    pcd_path = os.path.join(
+        '/home/quan/Desktop/tempary/redwood/00003/fragments', '%d_pcd.ply' % fragment
+    )
+    o3d.io.write_point_cloud(pcd_path, output_pcd)
+
+    Tcw_file = os.path.join('/home/quan/Desktop/tempary/redwood/00003/fragments', '%d_Tcw' % fragment)
+    np.save(Tcw_file, odom.frames[odom.last_step].Tcw)
+
+if __name__ == '__main__':
+    # main()
+    make_fragment()
