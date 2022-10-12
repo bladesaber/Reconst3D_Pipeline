@@ -7,7 +7,34 @@ from reconstruct.odometry.utils import PCD_utils
 from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
 from slam_py_env.vslam.utils import draw_kps, draw_kps_match
 
+class Frame(object):
+    def __init__(self, idx, t_step, rgb_img, pcd):
+        self.idx = idx
+        self.t_step = t_step
+        self.rgb_img = rgb_img
+        self.pcd: o3d.geometry.PointCloud = pcd
+
+    def set_Tcw(self, Tcw):
+        self.Tcw = Tcw
+        self.Rcw = self.Tcw[:3, :3]
+        self.tcw = self.Tcw[:3, 3]  # pc = Rcw * pw + tcw
+        self.Rwc = self.Rcw.T
+        self.Ow = -(self.Rwc @ self.tcw)
+        self.Twc = np.linalg.inv(self.Tcw)
+
+class MergeModel(object):
+    def __init__(self):
+        self.Pws_fix = pd.DataFrame(data=None, columns=['x', 'y', 'z'])
+
+    def merge(self, Pws1_fix):
+        df = pd.DataFrame(Pws1_fix, columns=['x', 'y', 'z'])
+        self.Pws_fix = pd.concat([self.Pws_fix, df], axis=0, ignore_index=True)
+        self.Pws_fix.drop_duplicates(subset=['x', 'y', 'z'], inplace=True)
+
 class Odometry_FixFun(object):
+    '''
+    Fail
+    '''
     def __init__(self, K, width, height):
         self.K = K
         self.width = width
@@ -15,6 +42,57 @@ class Odometry_FixFun(object):
 
         self.orb = ORBExtractor_BalanceIter(radius=5, max_iters=10, single_nfeatures=50, nfeatures=500)
         self.pcd_coder = PCD_utils()
+        self.model = MergeModel()
+
+        self.last_step = -1
+
+    def init_step(self, rgb_img, depth_img, config, Tcw, t_step):
+        self.frames = {}
+
+        Pcs, rgbs = self.pcd_coder.rgbd2pcd(
+            rgb_img, depth_img, config['depth_min'], config['depth_max'], self.K
+        )
+        Pcs_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs, rgbs)
+        Twc = np.linalg.inv(Tcw)
+        Pws_o3d = Pcs_o3d.transform(Twc)
+
+        Pws_down_o3d: o3d.geometry.PointCloud = Pws_o3d.voxel_down_sample(config['voxel_size'])
+        Pws_down = np.asarray(Pws_down_o3d.points)
+        Pws0_fix, masks0 = self.fix_mapping(Pws_down, config['tolerance_range'], config['error_var'])
+        Pws0_fix = Pws0_fix[masks0]
+
+        frame = Frame(t_step, t_step, rgb_img, Pws_down_o3d)
+        frame.set_Tcw(Tcw)
+        self.frames[t_step] = frame
+        self.last_step = t_step
+
+        self.model.merge(Pws0_fix)
+
+    def step(self, rgb_img, depth_img, config, Tcw, t_step):
+        pass
+
+    def estimate_from_PCDFeature(
+            self,
+            rgb0_img, depth0_img,
+            Tcw, depth_max, depth_min,
+            voxel_size=0.02, tolerance_range=0.1, error_var=0.025,
+    ):
+        ### extract from PCD
+        Pcs0, rgbs0 = self.pcd_coder.rgbd2pcd(rgb0_img, depth0_img, depth_min, depth_max, self.K)
+        Pcs0_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs0, rgbs0)
+
+        Twc = np.linalg.inv(Tcw)
+        Pws_o3d = Pcs0_o3d.transform(Twc)
+        Pws_o3d: o3d.geometry.PointCloud = Pws_o3d.voxel_down_sample(0.025)
+
+        Pws0 = np.asarray(Pws_o3d.points)
+        rgbs0 = np.asarray(Pws_o3d.colors)
+        Pws0_fix, masks0 = self.fix_mapping(Pws0, tolerance_range, error_var)
+        Pws0, Pws0_fix, rgbs0 = Pws0[masks0], Pws0_fix[masks0], rgbs0[masks0]
+
+        # self.draw_fix_feature_box(Pws0, Pws0_fix, tolerance_range)
+
+        return Pws0_fix
 
     def extract_img_feature(
             self,
@@ -42,34 +120,6 @@ class Odometry_FixFun(object):
         Pcs = (Kv.dot(uvds.T)).T
 
         return Pcs, rgbs, kps, descs
-
-    def estimate_from_PCDFeature(
-            self,
-            rgb0_img, depth0_img,
-            rgb1_img, depth1_img,
-            depth_max, depth_min
-    ):
-        ### extract from PCD
-        Pcs0, rgbs0 = self.pcd_coder.rgbd2pcd(rgb0_img, depth0_img, depth_min, depth_max, self.K)
-        Pcs0_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs0, rgbs0)
-        Pcs0_o3d: o3d.geometry.PointCloud = Pcs0_o3d.voxel_down_sample(0.025)
-        Pcs0 = np.asarray(Pcs0_o3d.points)
-        rgbs0 = np.asarray(Pcs0_o3d.colors)
-        Pcs0_fix, masks0 = self.fix_mapping(Pcs0, tolerance_range=0.1, error_var=0.025)
-        Pcs0, Pcs0_fix, rgbs0 = Pcs0[masks0], Pcs0_fix[masks0], rgbs0[masks0]
-
-
-        Pcs1, rgbs1 = self.pcd_coder.rgbd2pcd(rgb1_img, depth1_img, depth_min, depth_max, self.K)
-        Pcs1_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs1, rgbs1)
-        Pcs1_o3d: o3d.geometry.PointCloud = Pcs1_o3d.voxel_down_sample(0.025)
-        Pcs1 = np.asarray(Pcs1_o3d.points)
-        rgbs1 = np.asarray(Pcs1_o3d.colors)
-        Pcs1_fix, masks1 = self.fix_mapping(Pcs1, tolerance_range=0.1, error_var=0.025)
-        Pcs1, Pcs1_fix, rgbs1 = Pcs1[masks1], Pcs1_fix[masks1], rgbs1[masks1]
-
-        # self.draw_fix_feature_box(Pcs0, Pcs0_fix, tolerance_range=0.1)
-
-
 
     def estimate_from_ImgFeature(
             self,
@@ -122,7 +172,7 @@ class Odometry_FixFun(object):
             0.225 -> 0.2
             0.325 -> 0.4
         因此不采用
-
+        这种方法不具备旋转平移的不变性,因此必须先转换到近似统一坐标下才能使用
         '''
         limit_range = (tolerance_range - error_var * 2.0) / 2.0
         lamark_Pcs = np.round(Pcs / tolerance_range) * tolerance_range
