@@ -5,20 +5,19 @@ import pandas as pd
 from typing import List
 import apriltag
 
+from reconstruct.offline_reconstruct.recon2 import TFSearcher
+
 class Frame(object):
     def __init__(self, idx):
         self.idx = idx
         self.infos = {}
         self.tagIdxs = []
 
-    def add_info(
-            self, t_step, rgb_file, depth_file,
-            Tcw ,tag_idxs
-    ):
+    def add_info(self, t_step, rgb_file, depth_file, tag_infos):
         self.infos[t_step] = {
             'rgb_file': rgb_file,
             'depth_file': depth_file,
-            'Tcw': Tcw
+            # 'Tcw': Tcw
         }
         self.tagIdxs.extend(tag_idxs)
         self.tagIdxs = list(set(self.tagIdxs))
@@ -157,16 +156,21 @@ class ReconSystem_AprilTagLoop(object):
             self.graph.add_frame_to_network(source_frame, frame, t_step)
             source_frame = frame
 
+
+
     def step_process_img(self, rgb_file, depth_file, t_step):
         detect_tags = self.tag_detect(rgb_file)
 
-        tag_idxs = []
+        infos = []
         if len(detect_tags)>0:
-            frame = None
 
+            frame = None
             for tag_info in detect_tags:
                 tag_id = tag_info['tag_id']
-                tag_idxs.append(tag_id)
+                infos.append({
+                    'tag_id': tag_info['tag_id'],
+                    'Tcw': tag_info['Tcw']
+                })
 
                 state, tag_frame = self.graph.get_frame_from_tag(tag_id)
                 if state:
@@ -203,7 +207,7 @@ class ReconSystem_AprilTagLoop(object):
                 "tag_id": tag.tag_id,
                 "Tcw": T_camera_aprilTag,
             })
-        raise tag_result
+        return tag_result
 
     def icp(self,
             Pc0, Pc1,

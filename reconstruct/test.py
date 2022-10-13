@@ -4,12 +4,38 @@ import open3d as o3d
 
 from reconstruct.camera.fake_camera import RedWoodCamera
 
-dataloader = RedWoodCamera(
-    dir='/home/quan/Desktop/tempary/redwood/00003',
-    intrinsics_path='/home/quan/Desktop/tempary/redwood/00003/instrincs.json',
-    scalingFactor=1000.0
-)
+# dataloader = RedWoodCamera(
+#     dir='/home/quan/Desktop/tempary/redwood/00003',
+#     intrinsics_path='/home/quan/Desktop/tempary/redwood/00003/instrincs.json',
+#     scalingFactor=1000.0
+# )
 
-a = [1,1,2,3,5,5,5]
-a = set(a)
-print(a)
+Tcw1 = np.array([
+    [-0.72787344, 0.68271151, 0.06407222, 0.18835786],
+    [-0.16660583, -0.26671519, 0.94926577, 0.11728642],
+    [0.6651637, 0.68027054, 0.30787862, 0.54928867],
+    [0., 0., 0., 1.]
+])
+
+Tcw2 = np.array([
+    [0.99335285, -0.04237085, 0.1070272, -0.09039449],
+    [-0.08772434, 0.32334574, 0.94220591, 0.15201086],
+    [-0.07452885, -0.94533182, 0.31747946, 0.53113935],
+    [0., 0., 0., 1.]
+])
+
+Tcw3 = np.array([
+    [-0.76968536, -0.11586289, 0.62782182, 0.1032612],
+    [-0.09050725, -0.95365926, -0.28695375, -0.16111244],
+    [0.63197538, -0.27768652, 0.72353114, 0.57103337],
+    [0., 0., 0., 1.]
+])
+
+Tcw5 = np.array([
+    [0.34620491, -0.92393246, 0.16276046, 0.17921656],
+    [0.31256128, 0.27717166, 0.90856002, 0.13221597],
+    [-0.88456069, -0.26367532, 0.3847437, 0.41717064],
+    [0., 0., 0., 1.]
+])
+
+
