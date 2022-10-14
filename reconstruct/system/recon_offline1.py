@@ -6,122 +6,7 @@ from typing import List
 import apriltag
 import os
 
-class TFSearcher(object):
-    class TFNode(object):
-        def __init__(self, idx, parent=None):
-            self.idx = idx
-            self.parent = parent
-
-        def __str__(self):
-            return 'TFNode_%d'%self.idx
-
-    def __init__(self):
-        ### Tc1c0_tree[c0][c1] = Tc1c0
-        self.Tc1c0_tree = {}
-        self.TF_tree = {}
-
-    def search_Tc1c0(self, idx0, idx1):
-        if idx0 == idx1:
-            return True, np.eye(4)
-
-        close_set = {}
-        open_set = {}
-
-        source_leaf = TFSearcher.TFNode(idx=idx1, parent=None)
-        open_queue = [source_leaf.idx]
-        open_set[source_leaf.idx] = source_leaf
-
-        last_node = None
-        is_finish = False
-        while True:
-            if len(open_queue) == 0:
-                break
-
-            ### breath first search
-            cur_idx = open_queue.pop(0)
-            parent_leaf = open_set.pop(cur_idx)
-            close_set[parent_leaf.idx] = parent_leaf
-
-            neighbours = self.TF_tree[parent_leaf.idx]
-            for neighbour_idx in neighbours:
-                neighbour_leaf = TFSearcher.TFNode(idx=neighbour_idx, parent=parent_leaf)
-
-                if neighbour_leaf.idx == idx0:
-                    is_finish = True
-                    last_node = neighbour_leaf
-                    break
-
-                if neighbour_leaf.idx in close_set.keys():
-                    continue
-
-                if neighbour_leaf.idx not in open_set.keys():
-                    open_queue.append(neighbour_leaf.idx)
-                    open_set[neighbour_leaf.idx] = neighbour_leaf
-
-            if is_finish:
-                break
-
-        if last_node is None:
-            return False, None
-
-        ### path: c0 -> c1
-        path = []
-        while True:
-            path.append(last_node.idx)
-            if last_node.parent is None:
-                break
-
-            last_node = last_node.parent
-
-        Tc1c0 = np.eye(4)
-        for idx in range(len(path) - 1):
-            c0 = path[idx]
-            c1 = path[idx + 1]
-
-            Tc1c0_info = self.Tc1c0_tree[c0][c1]
-            Tc1c0_step = Tc1c0_info['Tc1c0']
-            Tc1c0 = Tc1c0_step.dot(Tc1c0)
-
-        return True, Tc1c0
-
-    def add_TFTree_Edge(self, idx, connect_idxs: List):
-        connect_idxs = connect_idxs.copy()
-        if idx in connect_idxs:
-            connect_idxs.remove(idx)
-
-        if idx in self.TF_tree.keys():
-            ajax_idxs = self.TF_tree[idx]
-        else:
-            ajax_idxs = []
-
-        ajax_idxs.extend(connect_idxs)
-        ajax_idxs = list(set(ajax_idxs))
-
-        self.TF_tree[idx] = ajax_idxs
-
-    def add_Tc1c0Tree_Edge(self, c0_idx, c1_idx, Tc1c0):
-        Tc1c0_info = None
-        if c0_idx in self.Tc1c0_tree.keys():
-            if c1_idx in self.Tc1c0_tree[c0_idx].keys():
-                Tc1c0_info = self.Tc1c0_tree[c0_idx][c1_idx]
-
-        if Tc1c0_info is None:
-            Tc1c0_info = {'Tc1c0': Tc1c0, 'count': 1.0}
-        else:
-            count = Tc1c0_info['count']
-            Tc1c0 = (count * Tc1c0_info['Tc1c0'] + Tc1c0) / (count + 1.0)
-            Tc1c0_info = {'Tc1c0': Tc1c0, 'count': count + 1.0}
-
-        if c0_idx not in self.Tc1c0_tree.keys():
-            self.Tc1c0_tree[c0_idx] = {}
-        if c1_idx not in self.Tc1c0_tree.keys():
-            self.Tc1c0_tree[c1_idx] = {}
-
-        self.Tc1c0_tree[c0_idx][c1_idx] = Tc1c0_info
-        self.Tc1c0_tree[c1_idx][c0_idx] = {
-            'Tc1c0': np.linalg.inv(Tc1c0_info['Tc1c0']),
-            'count': Tc1c0_info['count']
-        }
+from reconstruct.utils import TFSearcher
 
 class LandMark(object):
     def __init__(self, idx, tag):
@@ -193,19 +78,23 @@ class Graph(object):
         assert frame.idx not in self.frames_dict.keys()
         self.frames_dict[frame.idx] = frame
 
-class ReconSystem_AprilTag(object):
-    def __init__(self, K, tag_size):
+class ReconSystemOffline_AprilTag1(object):
+    def __init__(self, K, tag_size, width, height, depth_scale, with_pose_graph=True):
         self.K = K
         self.fx = self.K[0, 0]
         self.fy = self.K[1, 1]
         self.cx = self.K[0, 2]
         self.cy = self.K[1, 2]
         self.tag_size = tag_size
+        self.width = width
+        self.height = height
+        self.depth_scale = depth_scale
 
         self.tag_detector = apriltag.Detector()
         self.graph = Graph()
-        self.pose_graph = o3d.pipelines.registration.PoseGraph()
-        # self.pose_graph = None
+        self.with_pose_graph = with_pose_graph
+        if self.with_pose_graph:
+            self.pose_graph = o3d.pipelines.registration.PoseGraph()
 
     def create_pose_graph(self, rgb_files, depth_files):
         for rgb_file, depth_file in zip(rgb_files, depth_files):
@@ -238,8 +127,9 @@ class ReconSystem_AprilTag(object):
             Tcw = T_c_land.dot(T_land_w)
             frame.set_Tcw(Tcw)
 
-        self.init_PoseGraph_Node()
-        self.optimize_poseGraph(reference_node=source_landmark.idx)
+        if self.with_pose_graph:
+            self.init_PoseGraph_Node()
+            self.optimize_poseGraph(reference_node=source_landmark.idx)
 
         self.integrate_poseGraph()
 
@@ -295,35 +185,55 @@ class ReconSystem_AprilTag(object):
 
     def integrate_poseGraph(self):
         K_o3d = o3d.camera.PinholeCameraIntrinsic(
-            width=640, height=480,
+            width=self.width, height=self.height,
             fx=self.fx, fy=self.fy, cx=self.cx, cy=self.cy
         )
+
+        if self.with_pose_graph:
+            for frame_key in self.graph.frames_dict.keys():
+                frame = self.graph.frames_dict[frame_key]
+                node = self.pose_graph.nodes[frame.idx]
+                Twc = node.pose
+                Tcw = np.linalg.inv(Twc)
+                frame.set_Tcw(Tcw)
+                print('[DEBUG]: Update %s Tcw'%(str(frame)))
+
+            for landmark_key in self.graph.landmarks_dict.keys():
+                landmark = self.graph.landmarks_dict[landmark_key]
+                node = self.pose_graph.nodes[landmark.idx]
+                Twc = node.pose
+                Tcw = np.linalg.inv(Twc)
+                landmark.set_Tcw(Tcw)
+                print('[DEBUG]: Update %s Tcw' % (str(landmark)))
 
         pcd_list = []
         for frame_key in self.graph.frames_dict.keys():
             frame = self.graph.frames_dict[frame_key]
-
-            node = self.pose_graph.nodes[frame.idx]
-            Twc = node.pose
-            # Twc = frame.Twc
+            Twc = frame.Twc
 
             rgb_o3d = o3d.io.read_image(frame.rgb_file)
             depth_o3d = o3d.io.read_image(frame.depth_file)
             rgbd_o3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
-                color=rgb_o3d, depth=depth_o3d, depth_scale=1000.0,
+                color=rgb_o3d, depth=depth_o3d, depth_scale=self.depth_scale,
                 depth_trunc=1.5, convert_rgb_to_intensity=False
             )
             pcd: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_o3d, intrinsic=K_o3d)
-            pcd = pcd.voxel_down_sample(0.005)
+            pcd = pcd.voxel_down_sample(0.001)
             pcd = pcd.transform(Twc)
             pcd_list.append(pcd)
+
+        for landmark_key in self.graph.landmarks_dict.keys():
+            landmark = self.graph.landmarks_dict[landmark_key]
+            landmark_coor_mesh: o3d.geometry.TriangleMesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.07)
+            landmark_coor_mesh.transform(landmark.Twc)
+            pcd_list.extend([landmark_coor_mesh])
 
         o3d.visualization.draw_geometries(pcd_list)
 
     def add_frame_PoseGraph_Edge(
             self, frame: Frame, landmark: LandMark, Tcw_measure, info=np.eye(6), uncertain=True
     ):
-        if self.pose_graph is not None:
+        if self.with_pose_graph:
             print('[DEBUG]: Add Graph Edge %s -> %s'%(str(landmark), str(frame)))
             graphEdge = o3d.pipelines.registration.PoseGraphEdge(
                 landmark.idx, frame.idx,
@@ -335,7 +245,7 @@ class ReconSystem_AprilTag(object):
     def add_landmark_PoseGraph_Edge(
             self, landmark0: LandMark, landmark1: LandMark, Tc1c0_measure, info=np.eye(6), uncertain=True
     ):
-        if self.pose_graph is not None:
+        if self.with_pose_graph:
             print('[DEBUG]: Add Graph Edge %s -> %s' % (str(landmark0), str(landmark1)))
             graphEdge = o3d.pipelines.registration.PoseGraphEdge(
                 landmark0.idx, landmark1.idx,
@@ -368,7 +278,7 @@ class ReconSystem_AprilTag(object):
             self,
             max_correspondence_distance=0.05,
             preference_loop_closure=0.1,
-            edge_prune_threshold=0.25,
+            edge_prune_threshold=0.75,
             reference_node=0
     ):
         o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
@@ -405,20 +315,36 @@ class ReconSystem_AprilTag(object):
         return tag_result
 
 if __name__ == '__main__':
-    rgb_dir = '/home/quan/Desktop/tempary/redwood/test/color'
-    depth_dir = '/home/quan/Desktop/tempary/redwood/test/depth'
+    rgb_dir = '/home/quan/Desktop/tempary/redwood/test2/color'
+    depth_dir = '/home/quan/Desktop/tempary/redwood/test2/depth'
+
+    files = os.listdir(rgb_dir)
+    file_idxs = []
+    for file in files:
+        idx = file.replace('.jpg', '')
+        assert idx.isnumeric()
+        file_idxs.append(int(idx))
+
+    file_idxs = sorted(file_idxs)
+
     rgb_files, depth_files = [], []
-    for idx in range(11):
-        rgb_file = os.path.join(rgb_dir, '%d.jpg' % idx)
+    for idx in file_idxs[::20][:1]:
+        rgb_file = os.path.join(rgb_dir, '%.5d.jpg' % idx)
         rgb_files.append(rgb_file)
 
-        depth_file = os.path.join(depth_dir, '%d.png' % idx)
+        depth_file = os.path.join(depth_dir, '%.5d.png' % idx)
         depth_files.append(depth_file)
 
+    print(rgb_files)
+    print(depth_files)
+
     K = np.array([
-        [606.96850586, 0., 326.8588562],
-        [0., 606.10650635, 244.87898254],
+        [608.347900390625, 0., 639.939453125],
+        [0., 608.2945556640625, 364.01327514648438],
         [0., 0., 1.]
     ])
-    recon_system = ReconSystem_AprilTag(K=K, tag_size=33.5 / 1000)
+    recon_system = ReconSystemOffline_AprilTag1(
+        K=K, tag_size=33.5 / 1000.0,
+        width=1280, height=720, depth_scale=1000.0, with_pose_graph=False
+    )
     recon_system.create_pose_graph(rgb_files, depth_files)

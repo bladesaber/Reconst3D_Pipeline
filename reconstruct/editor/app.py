@@ -7,7 +7,7 @@ import numpy as np
 from functools import partial
 from copy import copy
 
-from reconstruct.odometry.utils import eulerAngles_to_rotationMat_scipy
+from reconstruct.utils import eulerAngles_to_rotationMat_scipy
 
 
 def parse_args():

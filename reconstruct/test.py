@@ -1,41 +1,65 @@
 import numpy as np
-import pandas as pd
-import open3d as o3d
+import cv2
+import apriltag
 
-from reconstruct.camera.fake_camera import RedWoodCamera
+from reconstruct.utils import PCD_utils
 
-# dataloader = RedWoodCamera(
-#     dir='/home/quan/Desktop/tempary/redwood/00003',
-#     intrinsics_path='/home/quan/Desktop/tempary/redwood/00003/instrincs.json',
-#     scalingFactor=1000.0
-# )
+rgb_file = '/home/quan/Desktop/tempary/redwood/test2/color/00000.jpg'
+deth_file = '/home/quan/Desktop/tempary/redwood/test2/depth/00000.png'
 
-Tcw1 = np.array([
-    [-0.72787344, 0.68271151, 0.06407222, 0.18835786],
-    [-0.16660583, -0.26671519, 0.94926577, 0.11728642],
-    [0.6651637, 0.68027054, 0.30787862, 0.54928867],
-    [0., 0., 0., 1.]
+K = np.array([
+    [608.347900390625, 0., 639.939453125],
+    [0., 608.2945556640625, 364.01327514648438],
+    [0., 0., 1.]
 ])
+fx = K[0, 0]
+fy = K[1, 1]
+cx = K[0, 2]
+cy = K[1, 2]
+tag_size = 33.5 / 1000.0
 
-Tcw2 = np.array([
-    [0.99335285, -0.04237085, 0.1070272, -0.09039449],
-    [-0.08772434, 0.32334574, 0.94220591, 0.15201086],
-    [-0.07452885, -0.94533182, 0.31747946, 0.53113935],
-    [0., 0., 0., 1.]
-])
+pcd_coder = PCD_utils()
+tag_detector = apriltag.Detector()
 
-Tcw3 = np.array([
-    [-0.76968536, -0.11586289, 0.62782182, 0.1032612],
-    [-0.09050725, -0.95365926, -0.28695375, -0.16111244],
-    [0.63197538, -0.27768652, 0.72353114, 0.57103337],
-    [0., 0., 0., 1.]
-])
+rgb_img = cv2.imread(rgb_file)
+depth_img = cv2.imread(deth_file, cv2.IMREAD_UNCHANGED)
 
-Tcw5 = np.array([
-    [0.34620491, -0.92393246, 0.16276046, 0.17921656],
-    [0.31256128, 0.27717166, 0.90856002, 0.13221597],
-    [-0.88456069, -0.26367532, 0.3847437, 0.41717064],
-    [0., 0., 0., 1.]
-])
+# show_depth_img = depth_img.copy().astype(np.float64)
+# show_depth_img = (show_depth_img - show_depth_img.min())/(show_depth_img.max()-show_depth_img.min()) * 255.
+# show_depth_img = show_depth_img.astype(np.uint8)
+# show_depth_img = np.tile(show_depth_img[..., np.newaxis], [1, 1, 3])
+# # cv2.imshow('rgb', rgb_img)
+# # cv2.imshow('depth', depth_img)
+# # cv2.waitKey(0)
+# plt.figure('rgb')
+# plt.imshow(rgb_img)
+# plt.figure('depth')
+# plt.imshow(show_depth_img)
+# plt.show()
 
+# print(depth_img.min(), depth_img.max())
 
+# gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+# tags = tag_detector.detect(gray_img)
+# tag_results = []
+# for tag_index, tag in enumerate(tags):
+#     # T april_tag to camera  Tcw
+#     T_camera_aprilTag, init_error, final_error = tag_detector.detection_pose(
+#         tag, [fx, fy, cx, cy],
+#         tag_size=tag_size
+#     )
+#     tag_results.append({
+#         "center": tag.center,
+#         "corners": tag.corners,
+#         "tag_id": tag.tag_id,
+#         "Tcw": T_camera_aprilTag,
+#     })
+
+# show_img = rgb_img.copy()
+# for res in tag_results:
+#     corners = res['corners']
+#     corners_int = np.round(corners).astype(np.int64)
+#     for x, y in corners_int:
+#         cv2.circle(show_img, (x, y), radius=4, color=(255, 0, 0), thickness=-1)
+# cv2.imshow('d', show_img)
+# cv2.waitKey(0)

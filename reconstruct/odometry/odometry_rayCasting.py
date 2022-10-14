@@ -1,17 +1,37 @@
 import os
 import numpy as np
 import open3d as o3d
-import pandas as pd
-import matplotlib.pyplot as plt
-import time
 import cv2
 import argparse
 from copy import copy
 
 from reconstruct.camera.fake_camera import RedWoodCamera
-from reconstruct.odometry.utils import Frame
+from reconstruct.utils import Frame
 from reconstruct.odometry.odometry_icp import Odometry_ICP
 from reconstruct.odometry.vis_utils import OdemVisulizer
+
+class Frame(object):
+    def __init__(
+            self,
+            idx, t_step,
+            rgb_img, depth_img,
+    ):
+        self.idx = idx
+        self.t_step = t_step
+        self.rgb_img = rgb_img
+        self.depth_img = depth_img
+
+    def set_rgbd_o3d(self, rgbd_o3d, pcd_o3d):
+        self.rgbd_o3d = rgbd_o3d
+        self.pcd_o3d = pcd_o3d
+
+    def set_Tcw(self, Tcw):
+        self.Tcw = Tcw
+        self.Rcw = self.Tcw[:3, :3]
+        self.tcw = self.Tcw[:3, 3]  # pc = Rcw * pw + tcw
+        self.Rwc = self.Rcw.T
+        self.Ow = -(self.Rwc @ self.tcw)
+        self.Twc = np.linalg.inv(self.Tcw)
 
 class Odometry_RayCasting(object):
     def __init__(
