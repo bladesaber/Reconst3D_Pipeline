@@ -3,6 +3,7 @@ import numpy as np
 import open3d as o3d
 import pandas as pd
 import cv2
+from typing import List
 
 from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
 
@@ -15,11 +16,11 @@ def quaternion_to_eulerAngles_scipy(quaternion, degrees=False):
     return r.as_euler(seq='xyz', degrees=degrees)
 
 def rotationMat_to_quaternion_scipy(R):
-    r = transform.Rotation.from_matrix(matrix=R)
+    r = transform.Rotation.from_matrix(R)
     return r.as_quat()
 
 def rotationMat_to_eulerAngles_scipy(R, degrees=False):
-    r = transform.Rotation.from_matrix(matrix=R)
+    r = transform.Rotation.from_matrix(R)
     return r.as_euler(seq='xyz', degrees=degrees)
 
 def eulerAngles_to_quaternion_scipy(theta, degress):
@@ -39,7 +40,7 @@ def rotationVec_to_quaternion_scipy(vec):
     return r.as_quat()
 
 def rotationMat_to_rotationVec_scipy(R):
-    r = transform.Rotation.from_matrix(matrix=R)
+    r = transform.Rotation.from_matrix(R)
     return r.as_rotvec()
 
 def xyz_to_ply(point_cloud, filename, rgb=None):
@@ -125,6 +126,20 @@ class PCD_utils(object):
 
         return uvd_rgbs[:, :3], uvd_rgbs[:, 3:]
 
+    def rgbd2pcd_o3d(
+            self, rgb_img, depth_img,
+            depth_min, depth_max, K_o3d,
+            convert_rgb_to_intensity=False,
+    ):
+        rgb_img_o3d = o3d.geometry.Image(rgb_img)
+        depth_img_o3d = o3d.geometry.Image(depth_img)
+        rgbd_o3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color=rgb_img_o3d, depth=depth_img_o3d, depth_scale=1.0, depth_trunc=depth_max,
+            convert_rgb_to_intensity=convert_rgb_to_intensity
+        )
+        Pcs_o3d: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_o3d, K_o3d)
+        return Pcs_o3d
+
     def pcd2pcd_o3d(self, xyzs, rgbs=None)->o3d.geometry.PointCloud:
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(xyzs)
@@ -139,14 +154,89 @@ class PCD_utils(object):
         )
         return pcd
 
-    def rgbd2rgbd_o3d(self, rgb_img, depth_img, depth_trunc, convert_rgb_to_intensity=False):
+    def rgbd2rgbd_o3d(self, rgb_img, depth_img, depth_trunc, depth_scale=1.0, convert_rgb_to_intensity=False):
         rgb_img_o3d = o3d.geometry.Image(rgb_img)
         depth_img_o3d = o3d.geometry.Image(depth_img)
         rgbd_o3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            color=rgb_img_o3d, depth=depth_img_o3d, depth_scale=1.0, depth_trunc=depth_trunc,
+            color=rgb_img_o3d, depth=depth_img_o3d, depth_scale=depth_scale, depth_trunc=depth_trunc,
             convert_rgb_to_intensity=convert_rgb_to_intensity
         )
         return rgbd_o3d
+
+    def Pws2uv(self, Pcs, K, Tcw, config, rgbs):
+        Pcs_homo = np.concatenate([Pcs, np.ones((Pcs.shape[0], 1))], axis=1)
+        uvds = (K.dot(Tcw[:3, :].dot(Pcs_homo.T))).T
+        uvds[:, :2] = uvds[:, :2] / uvds[:, 2:3]
+
+        if rgbs is not None:
+            data = np.concatenate([uvds, rgbs], axis=1)
+        else:
+            data = uvds
+
+        valid_bool = np.bitwise_and(
+            data[:, 2] < config['max_depth_thre'],
+            data[:, 2] > config['min_depth_thre']
+        )
+        data = data[valid_bool]
+        valid_bool = np.bitwise_and(data[:, 0] < config['width']-5., data[:, 0] > 5.)
+        data = data[valid_bool]
+        valid_bool = np.bitwise_and(data[:, 1] < config['height']-5., data[:, 1] > 5.)
+        data = data[valid_bool]
+
+        if rgbs is not None:
+            return data[:, :3], data[:, 3:]
+        else:
+            return data
+
+    def Pcs2uv(self, Pcs, K, config, rgbs):
+        uvds = (K.dot(Pcs.T)).T
+        uvds[:, :2] = uvds[:, :2] / uvds[:, 2:3]
+
+        if rgbs is not None:
+            data = np.concatenate([uvds, rgbs], axis=1)
+        else:
+            data = uvds
+
+        valid_bool = np.bitwise_and(
+            data[:, 2] < config['max_depth_thre'],
+            data[:, 2] > config['min_depth_thre']
+        )
+        data = data[valid_bool]
+        valid_bool = np.bitwise_and(data[:, 0] < config['width']-5., data[:, 0] > 5.)
+        data = data[valid_bool]
+        valid_bool = np.bitwise_and(data[:, 1] < config['height']-5., data[:, 1] > 5.)
+        data = data[valid_bool]
+
+        if rgbs is not None:
+            return data[:, :3], data[:, 3:]
+        else:
+            return data
+
+    def uv2Pcs(self, uvds, K):
+        Kv = np.linalg.inv(K)
+        uvds[:, :2] = uvds[:, :2] * uvds[:, 2:3]
+        Pcs = (Kv.dot(uvds[:, :3].T)).T
+        return Pcs
+
+    def depth2pcd(self, depth_img, depth_min, depth_max, K,):
+        h, w = depth_img.shape
+        ds = depth_img.reshape((-1, 1))
+
+        xs = np.arange(0, w, 1)
+        ys = np.arange(0, h, 1)
+        xs, ys = np.meshgrid(xs, ys)
+        uvs = np.concatenate([xs[..., np.newaxis], ys[..., np.newaxis]], axis=2)
+        uvs = uvs.reshape((-1, 2))
+        uvds = np.concatenate([uvs, ds], axis=1)
+
+        valid_bool = np.bitwise_and(uvds[:, 2] > depth_min, uvds[:, 2] < depth_max)
+        uvds = uvds[valid_bool]
+
+        Kv = np.linalg.inv(K)
+        uvds[:, :2] = uvds[:, :2] * uvds[:, 2:3]
+        uvds = (Kv.dot(uvds.T)).T
+
+        return uvds
 
 class TF_utils(object):
 

@@ -1,65 +1,36 @@
 import numpy as np
 import cv2
 import apriltag
+import open3d as o3d
+import matplotlib.pyplot as plt
+import pandas as pd
+
+np.set_printoptions(suppress=True)
 
 from reconstruct.utils import PCD_utils
+from reconstruct.utils import rotationMat_to_eulerAngles_scipy
 
-rgb_file = '/home/quan/Desktop/tempary/redwood/test2/color/00000.jpg'
-deth_file = '/home/quan/Desktop/tempary/redwood/test2/depth/00000.png'
-
-K = np.array([
-    [608.347900390625, 0., 639.939453125],
-    [0., 608.2945556640625, 364.01327514648438],
-    [0., 0., 1.]
-])
-fx = K[0, 0]
-fy = K[1, 1]
-cx = K[0, 2]
-cy = K[1, 2]
-tag_size = 33.5 / 1000.0
-
-pcd_coder = PCD_utils()
-tag_detector = apriltag.Detector()
+rgb_file = '/home/quan/Desktop/ir2.jpg'
+depth_file = '/home/quan/Desktop/depth.png'
 
 rgb_img = cv2.imread(rgb_file)
-depth_img = cv2.imread(deth_file, cv2.IMREAD_UNCHANGED)
+depth_img = cv2.imread(depth_file, cv2.IMREAD_UNCHANGED)
 
-# show_depth_img = depth_img.copy().astype(np.float64)
-# show_depth_img = (show_depth_img - show_depth_img.min())/(show_depth_img.max()-show_depth_img.min()) * 255.
-# show_depth_img = show_depth_img.astype(np.uint8)
-# show_depth_img = np.tile(show_depth_img[..., np.newaxis], [1, 1, 3])
-# # cv2.imshow('rgb', rgb_img)
-# # cv2.imshow('depth', depth_img)
-# # cv2.waitKey(0)
-# plt.figure('rgb')
-# plt.imshow(rgb_img)
-# plt.figure('depth')
-# plt.imshow(show_depth_img)
-# plt.show()
+T_depth_color = np.array([
+    [0.999991, 0.00416684, 0.000617466,-32.0041],
+    [-0.00421032, 0.99325, 0.115918, -1.75531],
+    [-0.000130288, -0.115919, 0.993259, 4.06985]
+])
+K_color = np.array([
+    [608.347900, 0.0, 639.939453],
+    [0.0, 608.294556, 364.013275],
+[0,0,1]
+])
+K_depth = np.array([
+    [504.573,0,522.353],
+    [0,504.656,516.738],
+    [0,0,1]
+])
 
-# print(depth_img.min(), depth_img.max())
+h, w, _ = rgb_img.shape
 
-# gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
-# tags = tag_detector.detect(gray_img)
-# tag_results = []
-# for tag_index, tag in enumerate(tags):
-#     # T april_tag to camera  Tcw
-#     T_camera_aprilTag, init_error, final_error = tag_detector.detection_pose(
-#         tag, [fx, fy, cx, cy],
-#         tag_size=tag_size
-#     )
-#     tag_results.append({
-#         "center": tag.center,
-#         "corners": tag.corners,
-#         "tag_id": tag.tag_id,
-#         "Tcw": T_camera_aprilTag,
-#     })
-
-# show_img = rgb_img.copy()
-# for res in tag_results:
-#     corners = res['corners']
-#     corners_int = np.round(corners).astype(np.int64)
-#     for x, y in corners_int:
-#         cv2.circle(show_img, (x, y), radius=4, color=(255, 0, 0), thickness=-1)
-# cv2.imshow('d', show_img)
-# cv2.waitKey(0)
