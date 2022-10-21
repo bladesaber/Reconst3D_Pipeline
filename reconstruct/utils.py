@@ -213,9 +213,10 @@ class PCD_utils(object):
             return data
 
     def uv2Pcs(self, uvds, K):
+        uvds = uvds.copy()
         Kv = np.linalg.inv(K)
         uvds[:, :2] = uvds[:, :2] * uvds[:, 2:3]
-        Pcs = (Kv.dot(uvds[:, :3].T)).T
+        Pcs = (Kv.dot(uvds.T)).T
         return Pcs
 
     def depth2pcd(self, depth_img, depth_min, depth_max, K,):
@@ -622,3 +623,6 @@ class TFSearcher(object):
             'Tc1c0': np.linalg.inv(Tc1c0_info['Tc1c0']),
             'count': Tc1c0_info['count']
         }
+
+# class Optimizer_BundleAdjustment(object):
+#     def

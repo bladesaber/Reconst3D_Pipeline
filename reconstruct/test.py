@@ -4,33 +4,113 @@ import apriltag
 import open3d as o3d
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.sparse import lil_matrix
+import bz2
+from reconstruct.utils import rotationVec_to_rotationMat_scipy
+import time
+from scipy.optimize import least_squares
 
-np.set_printoptions(suppress=True)
-
-from reconstruct.utils import PCD_utils
-from reconstruct.utils import rotationMat_to_eulerAngles_scipy
-
-rgb_file = '/home/quan/Desktop/ir2.jpg'
-depth_file = '/home/quan/Desktop/depth.png'
-
-rgb_img = cv2.imread(rgb_file)
-depth_img = cv2.imread(depth_file, cv2.IMREAD_UNCHANGED)
-
-T_depth_color = np.array([
-    [0.999991, 0.00416684, 0.000617466,-32.0041],
-    [-0.00421032, 0.99325, 0.115918, -1.75531],
-    [-0.000130288, -0.115919, 0.993259, 4.06985]
-])
-K_color = np.array([
-    [608.347900, 0.0, 639.939453],
-    [0.0, 608.294556, 364.013275],
-[0,0,1]
-])
-K_depth = np.array([
-    [504.573,0,522.353],
-    [0,504.656,516.738],
-    [0,0,1]
-])
-
-h, w, _ = rgb_img.shape
+# def read_bal_data(file_name):
+#     with bz2.open(file_name, "rt") as file:
+#         n_cameras, n_points, n_observations = map(
+#             int, file.readline().split())
+#
+#         camera_indices = np.empty(n_observations, dtype=int)
+#         point_indices = np.empty(n_observations, dtype=int)
+#         points_2d = np.empty((n_observations, 2))
+#
+#         for i in range(n_observations):
+#             camera_index, point_index, x, y = file.readline().split()
+#             camera_indices[i] = int(camera_index)
+#             point_indices[i] = int(point_index)
+#             points_2d[i] = [float(x), float(y)]
+#
+#         camera_params = np.empty(n_cameras * 9)
+#         for i in range(n_cameras * 9):
+#             camera_params[i] = float(file.readline())
+#         camera_params = camera_params.reshape((n_cameras, -1))
+#
+#         points_3d = np.empty(n_points * 3)
+#         for i in range(n_points * 3):
+#             points_3d[i] = float(file.readline())
+#         points_3d = points_3d.reshape((n_points, -1))
+#
+#     return camera_params, points_3d, camera_indices, point_indices, points_2d
+#
+# file_path = '/home/quan/Desktop/tempary/slam_ws/problem-49-7776-pre.txt.bz2'
+# camera_params, points_3d, camera_indices, point_indices, points_2d = read_bal_data(file_path)
+#
+# # print(camera_params.shape)
+# # print(points_3d.shape)
+# # print(points_2d.shape)
+# # print(camera_indices.shape)
+# # print(point_indices.shape)
+#
+# n_cameras = camera_params.shape[0]
+# n_points = points_3d.shape[0]
+# n = 9 * n_cameras + 3 * n_points
+# m = 2 * points_2d.shape[0]
+#
+# def rotate(points, rot_vecs):
+#     """Rotate points by given rotation vectors.
+#     Rodrigues' rotation formula is used.
+#     """
+#     theta = np.linalg.norm(rot_vecs, axis=1)[:, np.newaxis]
+#     with np.errstate(invalid='ignore'):
+#         v = rot_vecs / theta
+#         v = np.nan_to_num(v)
+#     dot = np.sum(points * v, axis=1)[:, np.newaxis]
+#     cos_theta = np.cos(theta)
+#     sin_theta = np.sin(theta)
+#
+#     return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
+#
+# def project(points, camera_params):
+#     """Convert 3-D points to 2-D by projecting onto images."""
+#     points_proj = rotate(points, camera_params[:, :3])
+#     points_proj += camera_params[:, 3:6]
+#     points_proj = -points_proj[:, :2] / points_proj[:, 2, np.newaxis]
+#
+#     f = camera_params[:, 6]
+#     k1 = camera_params[:, 7]
+#     k2 = camera_params[:, 8]
+#     n = np.sum(points_proj**2, axis=1)
+#     r = 1 + k1 * n + k2 * n**2
+#     points_proj *= (r * f)[:, np.newaxis]
+#     return points_proj
+#
+#
+# def fun(params, n_cameras, n_points, camera_indices, point_indices, points_2d):
+#     """Compute residuals.
+#     `params` contains camera parameters and 3-D coordinates.
+#     """
+#     camera_params = params[:n_cameras * 9].reshape((n_cameras, 9))
+#     points_3d = params[n_cameras * 9:].reshape((n_points, 3))
+#     points_proj = project(points_3d[point_indices], camera_params[camera_indices])
+#     return (points_proj - points_2d).ravel()
+#
+# def bundle_adjustment_sparsity(n_cameras, n_points, camera_indices, point_indices):
+#     m = camera_indices.size * 2
+#     n = n_cameras * 9 + n_points * 3
+#     A = lil_matrix((m, n), dtype=int)
+#
+#     i = np.arange(camera_indices.size)
+#     for s in range(9):
+#         A[2 * i, camera_indices * 9 + s] = 1
+#         A[2 * i + 1, camera_indices * 9 + s] = 1
+#
+#     for s in range(3):
+#         A[2 * i, n_cameras * 9 + point_indices * 3 + s] = 1
+#         A[2 * i + 1, n_cameras * 9 + point_indices * 3 + s] = 1
+#
+#     return A
+#
+# x0 = np.hstack((camera_params.ravel(), points_3d.ravel()))
+# f0 = fun(x0, n_cameras, n_points, camera_indices, point_indices, points_2d)
+# # A = bundle_adjustment_sparsity(n_cameras, n_points, camera_indices, point_indices)
+# #
+# # res = least_squares(
+# #     fun, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-4, method='trf',
+# #     args=(n_cameras, n_points, camera_indices, point_indices, points_2d)
+# # )
 

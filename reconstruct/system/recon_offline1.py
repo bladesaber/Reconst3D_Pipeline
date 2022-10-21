@@ -131,10 +131,11 @@ class ReconSystemOffline_AprilTag1(object):
             self.init_PoseGraph_Node()
             self.optimize_poseGraph(reference_node=source_landmark.idx)
 
-        self.integrate_poseGraph()
+        # self.integrate_poseGraph()
+        self.integrate_tsdf()
 
     def step_process_img(self, rgb_file, depth_file):
-        detect_tags = self.tag_detect(rgb_file)
+        detect_tags = self.tag_detect(rgb_file, depth_file)
 
         if len(detect_tags) == 0:
             return
@@ -218,9 +219,59 @@ class ReconSystemOffline_AprilTag1(object):
                 depth_trunc=1.5, convert_rgb_to_intensity=False
             )
             pcd: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_o3d, intrinsic=K_o3d)
-            pcd = pcd.voxel_down_sample(0.001)
+            pcd = pcd.voxel_down_sample(0.01)
             pcd = pcd.transform(Twc)
             pcd_list.append(pcd)
+
+        for landmark_key in self.graph.landmarks_dict.keys():
+            landmark = self.graph.landmarks_dict[landmark_key]
+            landmark_coor_mesh: o3d.geometry.TriangleMesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.07)
+            landmark_coor_mesh.transform(landmark.Twc)
+            pcd_list.extend([landmark_coor_mesh])
+
+        o3d.visualization.draw_geometries(pcd_list)
+
+    def integrate_tsdf(self):
+        K_o3d = o3d.camera.PinholeCameraIntrinsic(
+            width=self.width, height=self.height,
+            fx=self.fx, fy=self.fy, cx=self.cx, cy=self.cy
+        )
+
+        if self.with_pose_graph:
+            for frame_key in self.graph.frames_dict.keys():
+                frame = self.graph.frames_dict[frame_key]
+                node = self.pose_graph.nodes[frame.idx]
+                Twc = node.pose
+                Tcw = np.linalg.inv(Twc)
+                frame.set_Tcw(Tcw)
+                print('[DEBUG]: Update %s Tcw' % (str(frame)))
+
+            for landmark_key in self.graph.landmarks_dict.keys():
+                landmark = self.graph.landmarks_dict[landmark_key]
+                node = self.pose_graph.nodes[landmark.idx]
+                Twc = node.pose
+                Tcw = np.linalg.inv(Twc)
+                landmark.set_Tcw(Tcw)
+                print('[DEBUG]: Update %s Tcw' % (str(landmark)))
+
+        tsdf_model = o3d.pipelines.integration.ScalableTSDFVolume(
+            voxel_length=0.005,
+            sdf_trunc=3 * 0.005,
+            color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
+        )
+
+        pcd_list = []
+        for frame_key in self.graph.frames_dict.keys():
+            frame = self.graph.frames_dict[frame_key]
+
+            rgb_o3d = o3d.io.read_image(frame.rgb_file)
+            depth_o3d = o3d.io.read_image(frame.depth_file)
+            rgbd_o3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
+                color=rgb_o3d, depth=depth_o3d, depth_scale=self.depth_scale,
+                depth_trunc=2.0, convert_rgb_to_intensity=False
+            )
+            tsdf_model.integrate(rgbd_o3d, K_o3d, frame.Tcw)
+        pcd_list.append(tsdf_model.extract_triangle_mesh())
 
         for landmark_key in self.graph.landmarks_dict.keys():
             landmark = self.graph.landmarks_dict[landmark_key]
@@ -294,18 +345,24 @@ class ReconSystemOffline_AprilTag1(object):
         o3d.pipelines.registration.global_optimization(self.pose_graph, method, criteria, option)
         o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
-    def tag_detect(self, rgb_file):
+    def tag_detect(self, rgb_file, depth_file, use_apriltag=True):
         rgb_img = cv2.imread(rgb_file)
         gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
         tags = self.tag_detector.detect(gray)
 
         tag_result = []
         for tag_index, tag in enumerate(tags):
-            # T april_tag to camera  Tcw
-            T_camera_aprilTag, init_error, final_error = self.tag_detector.detection_pose(
-                tag, [self.fx, self.fy, self.cx, self.cy],
-                tag_size=self.tag_size
-            )
+
+            if use_apriltag:
+                # T april_tag to camera  Tcw
+                T_camera_aprilTag, init_error, final_error = self.tag_detector.detection_pose(
+                    tag, [self.fx, self.fy, self.cx, self.cy],
+                    tag_size=self.tag_size
+                )
+            else:
+                depth_img = cv2.imread(depth_file, cv2.IMREAD_UNCHANGED)
+                T_camera_aprilTag = self.compute_Tc1c0_icp(rgb_img, depth_img, tag)
+
             tag_result.append({
                 "center": tag.center,
                 "corners": tag.corners,
@@ -313,6 +370,57 @@ class ReconSystemOffline_AprilTag1(object):
                 "Tcw": T_camera_aprilTag,
             })
         return tag_result
+
+    def compute_Tc1c0_icp(self, rgb_img, depth_img, tag_result):
+        depth_img = depth_img.astype(np.float)
+        depth_img = depth_img / self.depth_scale
+
+        uvs = tag_result.corners
+        uvs_int = np.round(uvs)
+        uvs_int[:, 0] = np.minimum(np.maximum(uvs_int[:, 0], 0), self.width - 1)
+        uvs_int[:, 1] = np.minimum(np.maximum(uvs_int[:, 1], 0), self.height - 1)
+        uvs_int = uvs_int.astype(np.int64)
+
+        ds = depth_img[uvs_int[:, 1], uvs_int[:, 0]]
+        uvds = np.concatenate([uvs, ds.reshape((-1, 1))], axis=1)
+        uvds[:, :2] = uvds[:, :2] * uvds[:, 2:3]
+        Kv = np.linalg.inv(self.K)
+        Pcs = (Kv.dot(uvds.T)).T
+
+        Pws = np.array([
+            [-1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [-1.0, -1.0, 0.0]
+        ]) * self.tag_size / 2.0
+        Tcw = self.kabsch_rmsd(Pws, Pcs)
+        return Tcw
+
+    def kabsch_rmsd(self, Pc0, Pc1):
+        Pc0_center = np.mean(Pc0, axis=0, keepdims=True)
+        Pc1_center = np.mean(Pc1, axis=0, keepdims=True)
+
+        Pc0_normal = Pc0 - Pc0_center
+        Pc1_normal = Pc1 - Pc1_center
+
+        C = np.dot(Pc0_normal.T, Pc1_normal)
+        V, S, W = np.linalg.svd(C)
+        d = (np.linalg.det(V) * np.linalg.det(W)) < 0.0
+
+        if d:
+            S[-1] = -S[-1]
+            V[:, -1] = -V[:, -1]
+
+        rot_c0c1 = np.dot(V, W)
+        rot_c1c0 = np.linalg.inv(rot_c0c1)
+
+        tvec_c1c0 = Pc1_center - (rot_c1c0.dot(Pc0_center.T)).T
+
+        Tc1c0 = np.eye(4)
+        Tc1c0[:3, :3] = rot_c1c0
+        Tc1c0[:3, 3] = tvec_c1c0
+
+        return Tc1c0
 
 if __name__ == '__main__':
     rgb_dir = '/home/quan/Desktop/tempary/redwood/test2/color'
@@ -328,7 +436,7 @@ if __name__ == '__main__':
     file_idxs = sorted(file_idxs)
 
     rgb_files, depth_files = [], []
-    for idx in file_idxs[::20][:1]:
+    for idx in file_idxs[::20][:5]:
         rgb_file = os.path.join(rgb_dir, '%.5d.jpg' % idx)
         rgb_files.append(rgb_file)
 
@@ -345,6 +453,6 @@ if __name__ == '__main__':
     ])
     recon_system = ReconSystemOffline_AprilTag1(
         K=K, tag_size=33.5 / 1000.0,
-        width=1280, height=720, depth_scale=1000.0, with_pose_graph=False
+        width=1280, height=720, depth_scale=1000.0, with_pose_graph=True
     )
     recon_system.create_pose_graph(rgb_files, depth_files)

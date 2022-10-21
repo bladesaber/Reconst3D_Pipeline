@@ -6,21 +6,20 @@ import apriltag
 from typing import Union, List
 import pickle
 import time
-import os
 
 import argparse
-from reconstruct.camera.fake_camera import RedWoodCamera, KinectCamera
+from reconstruct.camera.fake_camera import RedWoodCamera
 
 from reconstruct.utils import TF_utils
 from reconstruct.utils import TFSearcher
 from reconstruct.utils import PCD_utils
 
 class Frame(object):
-    def __init__(self, idx, t_step, tagIdxs:List=None):
+    def __init__(self, idx, t_step):
         self.idx = idx
         self.info = None
         self.t_start_step = t_step
-        self.tagIdxs = tagIdxs
+        self.tagTcws = {}
 
     def set_Tcw(self, Tcw):
         self.Tcw = Tcw
@@ -33,47 +32,18 @@ class Frame(object):
     def add_info(self, info):
         self.info = info
 
+    def add_tagInfo(self, tag, Tcw):
+        assert tag not in self.tagTcws.keys()
+        self.tagTcws[tag] = Tcw
+
     def __str__(self):
         return 'Frame_%s' % self.idx
-
-class Landmark(Frame):
-    def __init__(self, idx, t_step, tagIdx):
-        self.idx = idx
-        self.t_start_step = t_step
-        self.tagIdx = tagIdx
-
-    def __str__(self):
-        return 'Landmark_%s' % self.idx
 
 class PoseGraphSystem(object):
     def __init__(self, with_pose_graph):
         self.with_pose_graph = with_pose_graph
         if self.with_pose_graph:
             self.pose_graph = o3d.pipelines.registration.PoseGraph()
-
-    def add_Frame_and_Landmark_Edge(
-            self, frame: Frame, landmark: Landmark, Tcw_measure, info=np.eye(6), uncertain=True
-    ):
-        if self.with_pose_graph:
-            print('[DEBUG]: Add Graph Edge %s -> %s' % (str(landmark), str(frame)))
-            graphEdge = o3d.pipelines.registration.PoseGraphEdge(
-                landmark.idx, frame.idx,
-                Tcw_measure, info,
-                uncertain=uncertain
-            )
-            self.pose_graph.edges.append(graphEdge)
-
-    def add_Landmark_and_Landmark_Edge(
-            self, landmark0: Landmark, landmark1: Landmark, Tcw_measure, info=np.eye(6), uncertain=True
-    ):
-        if self.with_pose_graph:
-            print('[DEBUG]: Add Graph Edge %s -> %s' % (str(landmark0), str(landmark1)))
-            graphEdge = o3d.pipelines.registration.PoseGraphEdge(
-                landmark0.idx, landmark1.idx,
-                Tcw_measure, info,
-                uncertain=uncertain
-            )
-            self.pose_graph.edges.append(graphEdge)
 
     def add_Frame_and_Frame_Edge(
             self, frame0: Frame, frame1: Frame, Tcw_measure, info=np.eye(6), uncertain=True
@@ -123,9 +93,7 @@ class FrameHouse(object):
     def __init__(self):
         self.graph_idx = 0
         self.frames_dict = {}
-        self.landmarks_dict = {}
-
-        self.tag2landmark = {}
+        self.tag2frames = {}
 
     def create_Frame(self, t_step):
         frame = Frame(self.graph_idx, t_step=t_step)
@@ -136,19 +104,28 @@ class FrameHouse(object):
         assert frame.idx not in self.frames_dict.keys()
         self.frames_dict[frame.idx] = frame
 
-    def create_Landmark(self, tagIdx, t_step):
-        landmark = Landmark(self.graph_idx, tagIdx=tagIdx, t_step=t_step)
-        self.graph_idx += 1
-        return landmark
+    def record_frame(self, frame:Frame, tagIdxs:List):
+        for tagIdx in tagIdxs:
+            if tagIdx not in self.tag2frames.keys():
+                self.tag2frames[tagIdx] = []
+            self.tag2frames[tagIdx].append(frame)
 
-    def add_landmark(self, landmark: Landmark):
-        assert landmark.idx not in self.landmarks_dict.keys()
-        assert landmark.tagIdx not in self.tag2landmark.keys()
+    def save(self, path:str):
+        assert path.endswith('.pkl')
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
 
-        self.landmarks_dict[landmark.idx] = landmark
-        self.tag2landmark[landmark.tagIdx] = landmark
+    def load(self, path:str):
+        assert path.endswith('.pkl')
+        with open(path, 'rb') as f:
+            self = pickle.load(f)
+        return self
 
 class ReconSystem_AprilTag1(object):
+    '''
+    only consider Edge between Frame and Frame
+    '''
+
     def __init__(self, K, config):
         self.K = K
         self.fx = self.K[0, 0]
@@ -214,10 +191,10 @@ class ReconSystem_AprilTag1(object):
         self.tsdf_model.integrate(rgbd_o3d, self.K_o3d, init_Tcw)
         self.tracking_pcd: o3d.geometry.PointCloud = self.tsdf_model.extract_point_cloud()
 
-        ### ------ add landmark pose graph --------
+        ### ------ add relative frame edge --------
         detect_tags, include_tagIdxs = self.tag_detect(rgb_img)
-        find_tag = self.process_tag_PoseGraph(frame, detect_tags, include_tagIdxs, t_step)
-        self.trackPcd_has_tag = find_tag
+        self.process_tag_PoseGraph(frame, detect_tags, include_tagIdxs, t_step)
+        self.tracking_tags = include_tagIdxs
 
         ### update last tracking frame idx
         self.last_frameIdx = frame.idx
@@ -238,33 +215,31 @@ class ReconSystem_AprilTag1(object):
             rgb_img, depth_img,
             self.config['min_depth_thre'], self.config['max_depth_thre'], self.K
         )
-        Pcs_o3d: o3d.geometry.PointCloud = self.pcd_coder.pcd2pcd_o3d(Pcs)
+        Pcs_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs)
         Pcs_o3d = Pcs_o3d.voxel_down_sample(self.config['voxel_size'])
+
+        ### for debug
+        remap_img1 = self.uv2img(tsdf_uvds[:, :2], tsdf_rgbs)
+        cur_uvds = self.pcd_coder.Pcs2uv(Pcs, self.K, self.config, rgbs=None)
+        color_debug = np.tile(np.array([[1.0, 0, 0]]), (cur_uvds.shape[0], 1))
+        remap_img2 = self.uv2img(cur_uvds[:, :2], color_debug)
+        remap_img = cv2.addWeighted(remap_img1, 0.75, remap_img2, 0.25, 0)
 
         ### the TSDF PointCloud has been tranform to current view based on pcd_coder.Pws2uv above
         ### the source Point Cloud should be Pcs
         res, icp_info = self.tf_coder.compute_Tc1c0_ICP(
-            Pcs_o3d, tsdf_Pcs_o3d, voxelSizes=[0.03, 0.015], maxIters=[100, 50], init_Tc1c0=np.eye(4)
+            Pcs_o3d, tsdf_Pcs_o3d, voxelSizes=[0.05, 0.015], maxIters=[100, 100], init_Tc1c0=np.eye(4)
         )
 
         ### todo error in fitness computation
         fitness = res.fitness
-        print('[DEBUG]: Fitness: %f' % (fitness))
+        # print('[DEBUG]: Fitness: %f' % (fitness))
         if fitness<self.config['fitness_min_thre']:
             return False, Tc0w, None
 
         Tc0c1 = res.transformation
         Tc1c0 = np.linalg.inv(Tc0c1)
         Tc1w = Tc1c0.dot(Tc0w)
-
-        ### for debug
-        remap_img1 = self.uv2img(tsdf_uvds[:, :2], tsdf_rgbs)
-        Pcs_o3d_template = Pcs_o3d.transform(Tc0c1)
-        Pcs_template = np.asarray(Pcs_o3d_template.points)
-        cur_uvds = self.pcd_coder.Pcs2uv(Pcs_template, self.K, self.config, rgbs=None)
-        color_debug = np.tile(np.array([[1.0, 0, 0]]), (cur_uvds.shape[0], 1))
-        remap_img2 = self.uv2img(cur_uvds[:, :2], color_debug)
-        remap_img = cv2.addWeighted(remap_img1, 0.75, remap_img2, 0.25, 0)
 
         ### todo mode 2 update tsdf model consistly but only update self.tracking_pcd when accept new frame
         rgbd_o3d = self.pcd_coder.rgbd2rgbd_o3d(
@@ -305,55 +280,34 @@ class ReconSystem_AprilTag1(object):
             self.tracking_pcd: o3d.geometry.PointCloud = self.tsdf_model.extract_point_cloud()
 
             ### ------ add landmark pose graph --------
-            ### todo only use Edge between frame and frame is better
-            find_tag = self.process_tag_PoseGraph(frame, detect_tags, include_tagIdxs, t_step)
-            self.trackPcd_has_tag = find_tag
+            ### todo only use Edge between frame and frame
+            self.process_tag_PoseGraph(frame, detect_tags, include_tagIdxs, t_step)
+            self.tracking_tags = include_tagIdxs
 
             ### update last tracking frame idx
             self.last_frameIdx = frame.idx
 
-        return True, Tc1w, {'debug_img': remap_img, 'create_new_frame': need_new_frame}
+        return True, Tc1w, {'debug_img': remap_img}
 
     def process_tag_PoseGraph(self, frame:Frame, detect_tags, include_tagIdxs, t_step):
         if len(include_tagIdxs) > 0:
-            finded_landmarks, finded_Tcw = [], []
             for tag_info in detect_tags:
                 tag_idx = tag_info['tag_id']
-                if tag_idx in self.frameHouse.tag2landmark.keys():
-                    landmark = self.frameHouse.tag2landmark[tag_idx]
-                else:
-                    landmark = self.frameHouse.create_Landmark(tag_idx, t_step)
+                Tc0w = tag_info['Tcw']
+                Twc0 = np.linalg.inv(Tc0w)
+                frame.add_tagInfo(tag_idx, Tc0w)
 
-                    T_c_landmark = tag_info['Tcw']
-                    T_landmark_w = (np.linalg.inv(T_c_landmark)).dot(frame.Tcw)
-                    landmark.set_Tcw(T_landmark_w)
+                if tag_idx in self.frameHouse.tag2frames.keys():
+                    relate_frames: List[Frame] = self.frameHouse.tag2frames[tag_idx]
 
-                    self.frameHouse.add_landmark(landmark)
+                    for relate_frame in relate_frames:
+                        Tc1w = relate_frame.tagTcws[tag_idx]
+                        Tc1c0 = Tc1w.dot(Twc0)
+                        self.pose_graph_system.add_Frame_and_Frame_Edge(
+                            frame, relate_frame, Tcw_measure=Tc1c0
+                        )
 
-                finded_landmarks.append(landmark)
-                finded_Tcw[landmark.idx] = tag_info['Tcw']
-
-                ### add pose graph edge between frame and landmark
-                self.pose_graph_system.add_Frame_and_Landmark_Edge(frame, landmark, tag_info['Tcw'])
-
-            num_finded_landmarks = len(finded_landmarks)
-            for i in range(num_finded_landmarks):
-                landmark_i = finded_landmarks[i]
-
-                T_c_wi = finded_Tcw[landmark_i.idx]
-                for j in range(i + 1, num_finded_landmarks, 1):
-                    landmark_j = finded_landmarks[j]
-                    T_c_wj = finded_Tcw[landmark_j.idx]
-
-                    ### measure between landmark_i and landmark_j
-                    T_wj_wi = np.linalg.inv(T_c_wj).dot(T_c_wi)
-
-                    ### add pose graph edge between landmark and landmark
-                    self.pose_graph_system.add_Landmark_and_Landmark_Edge(landmark_i, landmark_j, T_wj_wi)
-
-            return True
-
-        return False
+            self.frameHouse.record_frame(frame, include_tagIdxs)
 
     def tag_detect(self, rgb_img):
         gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
@@ -386,14 +340,6 @@ class ReconSystem_AprilTag1(object):
                 frame.set_Tcw(Tcw)
                 print('[DEBUG]: Update %s Tcw'%(str(frame)))
 
-            for landmark_key in self.frameHouse.landmarks_dict.keys():
-                landmark: Landmark = self.frameHouse.landmarks_dict[landmark_key]
-                node = self.pose_graph_system.pose_graph.nodes[landmark.idx]
-                Twc = node.pose
-                Tcw = np.linalg.inv(Twc)
-                landmark.set_Tcw(Tcw)
-                print('[DEBUG]: Update %s Tcw' % (str(landmark)))
-
         pcd_list = []
         for frame_key in self.frameHouse.frames_dict.keys():
             frame = self.frameHouse.frames_dict[frame_key]
@@ -409,12 +355,6 @@ class ReconSystem_AprilTag1(object):
             pcd = pcd.voxel_down_sample(0.01)
             pcd = pcd.transform(Twc)
             pcd_list.append(pcd)
-
-        for landmark_key in self.frameHouse.landmarks_dict.keys():
-            landmark = self.frameHouse.landmarks_dict[landmark_key]
-            landmark_coor_mesh: o3d.geometry.TriangleMesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.07)
-            landmark_coor_mesh.transform(landmark.Twc)
-            pcd_list.extend([landmark_coor_mesh])
 
         o3d.visualization.draw_geometries(pcd_list)
 
@@ -432,16 +372,14 @@ class ReconSystem_AprilTag1(object):
         return sub_area / area
 
     def need_new_frame(self, include_tagIdxs, fitness, Pcs, tsdf_uvds):
-        cond1 = (len(include_tagIdxs) > 0) and (self.trackPcd_has_tag == False)
-
+        cond1 = np.sum(np.in1d(include_tagIdxs, self.tracking_tags, invert=True, assume_unique=True))>0
         cond2 = fitness < self.config['fitness_thre']
+        overlap = self.view_overlap(Pcs, tsdf_uvds)
+        cond3 = overlap < self.config['overlap_thre']
+        print('[DEBUG]: Fitness: %f Overlap: %f'%(fitness, overlap))
+        return cond1 or cond2 or cond3
 
-        # overlap = self.view_overlap(Pcs, tsdf_uvds)
-        # cond3 = overlap < self.config['overlap_thre']
-        # print('[DEBUG]: Fitness: %f Overlap: %f'%(fitness, overlap))
-        # return cond1 or cond2 or cond3
-
-        return cond1 or cond2
+        # return cond1 or cond3
 
     def uv2img(self, uvs, rgbs):
         img_uvs = np.zeros((self.height, self.width, 3), dtype=np.uint8)
@@ -463,15 +401,10 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # dataloader = RedWoodCamera(
-    #     dir=args.dataset_dir,
-    #     intrinsics_path=args.intrinsics_path,
-    #     scalingFactor=1000.0
-    # )
-    dataloader = KinectCamera(
-        dir='/home/quan/Desktop/tempary/redwood/test4',
-        intrinsics_path='/home/quan/Desktop/tempary/redwood/test4/intrinsic.json',
-        scalingFactor=1000.0, skip=5
+    dataloader = RedWoodCamera(
+        dir=args.dataset_dir,
+        intrinsics_path=args.intrinsics_path,
+        scalingFactor=1000.0
     )
 
     config = {
@@ -482,7 +415,7 @@ def main():
         'tsdf_size': 0.02,
         'min_depth_thre': 0.2,
         'max_depth_thre': 3.0,
-        'fitness_min_thre': 0.65,
+        'fitness_min_thre': 0.6,
         'fitness_thre': 0.7,
         'overlap_thre': 0.1,
         'voxel_size': 0.01
@@ -492,10 +425,6 @@ def main():
     class DebugVisulizer(object):
         def __init__(self):
             self.t_step = 0
-            self.fragment_id = 0
-            self.cumsum = 5
-            self.cumsum_idx = 0
-
             self.Tcw = None
 
             cv2.namedWindow('debug')
@@ -537,26 +466,6 @@ def main():
 
                         debug_img = infos['debug_img']
                         cv2.imshow('debug', debug_img)
-
-                        create_new_frame = infos['create_new_frame']
-                        if create_new_frame:
-                            self.cumsum_idx += 1
-
-                        if self.cumsum_idx==self.cumsum:
-                            tsdf_pcd: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
-                            save_ply_path = os.path.join(
-                                '/home/quan/Desktop/tempary/redwood/test4/fragment', 'fragment_%d.ply'%self.fragment_id
-                            )
-                            self.fragment_id += 1
-                            o3d.io.write_point_cloud(save_ply_path, tsdf_pcd)
-                            save_Tcw_path = os.path.join(
-                                '/home/quan/Desktop/tempary/redwood/test4/fragment', 'fragment_%d' % self.fragment_id
-                            )
-                            np.save(save_Tcw_path, self.Tcw)
-
-                            recon_sys.has_init_step = False
-                            print('[DEBUG]: Saving Point Cloud: %s'%save_ply_path)
-                            self.cumsum_idx = 0
 
                 cv2.waitKey(1)
 

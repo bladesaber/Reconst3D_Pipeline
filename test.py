@@ -9,7 +9,6 @@ K = np.array([
 ])
 Kv = np.linalg.inv(K)
 
-
 def compute_axis(corner, dst_points):
     homography, _ = cv2.findHomography(dst_points, corner, method=0)
 
