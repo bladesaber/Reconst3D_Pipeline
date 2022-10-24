@@ -191,17 +191,22 @@ class SIFTExtractor(object):
         self.extractor = cv2.SIFT_create(
             nfeatures=nfeatures
         )
+
         self.matcher = cv2.BFMatcher()
+        # index_params = dict(algorithm=ORBExtractor.FLANN_INDEX_LSH,
+        #                     table_number=6,
+        #                     key_size=12,
+        #                     multi_probe_level=1)
+        # search_params = dict(checks=50)
+        # self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
 
-    def extract_kp(self, gray, mask=None):
-        kps = self.extractor.detect(gray, mask=mask)
-        return kps
+    def extract_kp_desc(self, gray, mask=None):
+        kps_cv = self.extractor.detect(gray, mask=mask)
+        kps = cv2.KeyPoint_convert(kps_cv)
+        _, desc = self.extractor.compute(gray, kps_cv)
+        return kps, desc
 
-    def extract_desc(self, gray, kps: cv2.KeyPoint):
-        _, desc = self.extractor.compute(gray, kps)
-        return desc
-
-    def match(self, desc0: np.array, desc1: np.array, thre=0.15):
+    def match(self, desc0:np.array, desc1:np.array, match_thre=0.5):
         # matches = self.matcher.match(desc0, desc1)
         matches = self.matcher.knnMatch(desc0, desc1, k=2)
 
@@ -213,7 +218,7 @@ class SIFTExtractor(object):
                 continue
 
             m, n = match
-            if m.distance < n.distance * thre:
+            if (m.distance < n.distance * match_thre):
                 query_idx = m.queryIdx
                 train_idx = m.trainIdx
                 if query_idx in m_idx0:
@@ -233,14 +238,6 @@ class SIFTExtractor(object):
         m_idx1 = np.array(m_idx1)
 
         return (m_idx0, m_idx1), (um_idx0, um_idx1)
-
-class LKExtractor(object):
-    def __init__(self):
-        self.lk_params = dict(
-            winSize=(31, 31),
-            maxLevel=3,
-            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03)
-        )
 
 if __name__ == '__main__':
     # extractor1 = ORBExtractor_BalanceIter(nfeatures=300, radius=15, max_iters=10)

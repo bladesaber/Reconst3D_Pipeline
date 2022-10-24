@@ -93,7 +93,8 @@ class KinectCamera(object):
 
         self.scalingFactor = scalingFactor
 
-    def load_instrincs(self, intrinsics_path):
+    @staticmethod
+    def load_instrincs(intrinsics_path):
         with open(intrinsics_path, 'r') as f:
             instrics = json.load(f)
         return instrics
@@ -122,7 +123,10 @@ class KinectCamera(object):
             else:
                 return True, (rgb, depth), (rgb_path, depth_path)
 
-        return False, (None, None)
+        if not with_path:
+            return False, (None, None)
+        else:
+            return False, (None, None), (None, None)
 
 if __name__ == '__main__':
     # dataloader = RedWoodCamera(

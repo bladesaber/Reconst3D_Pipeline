@@ -1,15 +1,3 @@
-import numpy as np
-import cv2
-import apriltag
-import open3d as o3d
-import matplotlib.pyplot as plt
-import pandas as pd
-from scipy.sparse import lil_matrix
-import bz2
-from reconstruct.utils import rotationVec_to_rotationMat_scipy
-import time
-from scipy.optimize import least_squares
-
 # def read_bal_data(file_name):
 #     with bz2.open(file_name, "rt") as file:
 #         n_cameras, n_points, n_observations = map(

@@ -1,13 +1,12 @@
 import open3d as o3d
 import numpy as np
 import cv2
-import pandas as pd
 from typing import List
 import apriltag
 import os
 from tqdm import tqdm
 
-from reconstruct.utils import TFSearcher, PCD_utils, TF_utils
+from reconstruct.utils_tool.utils import TFSearcher, PCD_utils, TF_utils
 
 class Frame(object):
     def __init__(self, idx):
@@ -106,6 +105,9 @@ class FrameHouse(object):
             self.tag2frames[tagIdx].append(frame)
 
 class ReconSystemOffline_AprilTag1(object):
+    '''
+    基于AprilTag的一个代码改进版本，功能与recon_offline重合，但更为简洁
+    '''
     def __init__(self, K, config):
         self.K = K
         self.fx = self.K[0, 0]

@@ -309,7 +309,7 @@ class TF_utils(object):
 
     def compute_Tc1c0_ICP(
             self,
-            Pc0, Pc1,
+            Pc0: o3d.geometry.PointCloud, Pc1: o3d.geometry.PointCloud,
             voxelSizes, maxIters,
             icp_method='point_to_plane',
             init_Tc1c0=np.identity(4),
@@ -412,32 +412,14 @@ class TF_utils(object):
 
     def compute_Tc1c0_Visual(
             self,
-            rgb0_img, depth0_img,
-            rgb1_img, depth1_img,
+            depth0_img, kps0, desc0,
+            depth1_img, kps1, desc1,
             extractor, K, max_depth_thre, min_depth_thre,
-            n_sample, diff_max_distance
+            n_sample, diff_max_distance,
     ):
-        if extractor is None:
-            extractor = ORBExtractor_BalanceIter(radius=10, max_iters=10, single_nfeatures=20)
-
-        gray0_img = cv2.cvtColor(rgb0_img, cv2.COLOR_BGR2GRAY)
-        # kps0_cv = self.extractor.extract_kp(gray0_img, mask=None)
-        # desc0 = self.extractor.extract_desc(gray0_img, kps0_cv)
-        # kps0 = cv2.KeyPoint_convert(kps0_cv)
-        kps0, desc0 = extractor.extract_kp_desc(gray0_img)
-
-        gray1_img = cv2.cvtColor(rgb1_img, cv2.COLOR_BGR2GRAY)
-        # kps1_cv = self.extractor.extract_kp(gray1_img, mask=None)
-        # desc1 = self.extractor.extract_desc(gray1_img, kps1_cv)
-        # kps1 = cv2.KeyPoint_convert(kps1_cv)
-        kps1, desc1 = extractor.extract_kp_desc(gray1_img)
-
-        if kps0.shape[0] == 0 or kps1.shape[0] == 0:
-            return False, None
-        print('[DEBUG]: Extract ORB Feature: %d'%kps0.shape[0])
-
         uvds0, uvds1 = [], []
         (midxs0, midxs1), _ = extractor.match(desc0, desc1)
+
         for midx0, midx1 in zip(midxs0, midxs1):
             uv0_x, uv0_y = kps0[midx0]
             uv1_x, uv1_y = kps1[midx1]
@@ -506,6 +488,61 @@ class TF_utils(object):
         )
 
         return success, (Tc1c0, info)
+
+    ### ----------- FPFH Estimation Method -----------
+    def compute_fpfh_feature(
+            self, pcd:o3d.geometry.PointCloud,
+            kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn
+    ):
+        pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
+            radius=kdtree_radius, max_nn=kdtree_max_nn)
+        )
+        pcd_fpfh: o3d.pipelines.registration.Feature = o3d.pipelines.registration.compute_fpfh_feature(
+            pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=fpfh_radius, max_nn=fpfh_max_nn)
+        )
+        return pcd_fpfh
+
+    def compute_Tc1c0_FPFH(
+            self,
+            Pcs0: o3d.geometry.PointCloud, Pcs1: o3d.geometry.PointCloud,
+            Pcs0_fpfh: o3d.pipelines.registration.Feature,
+            Pcs1_fpfh: o3d.pipelines.registration.Feature,
+            distance_threshold, method='fgr', ransac_n=4,
+    ):
+        if method == 'fgr':
+            res = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+                Pcs0, Pcs1, Pcs0_fpfh, Pcs1_fpfh,
+                o3d.pipelines.registration.FastGlobalRegistrationOption(
+                    maximum_correspondence_distance=distance_threshold)
+            )
+
+        elif method == 'ransac':
+            res = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+                Pcs0, Pcs1, Pcs0_fpfh, Pcs1_fpfh,
+                mutual_filter=False, max_correspondence_distance=distance_threshold,
+                ### since here are just sparse point mapping, so only PointToPoint ICP is suitable
+                estimation_method = o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+                ransac_n = ransac_n,
+                checkers = [
+                    o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+                    o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold)
+                ],
+                criteria = o3d.pipelines.registration.RANSACConvergenceCriteria(1000000, 0.999)
+            )
+
+        else:
+            raise ValueError
+
+        if (res.transformation.trace() == 4.0):
+            return False, None, None
+
+        information = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+            Pcs0, Pcs1, distance_threshold, res.transformation
+        )
+        if information[5, 5] / min(len(Pcs0.points), len(Pcs1.points)) < 0.3:
+            return False, None, None
+
+        return True, res, information
 
 class TFSearcher(object):
     class TFNode(object):

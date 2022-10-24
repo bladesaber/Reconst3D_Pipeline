@@ -1,18 +1,15 @@
 import open3d as o3d
 import numpy as np
-import pandas as pd
 import cv2
 import apriltag
-from typing import Union, List
+from typing import List
 import pickle
-import time
 
 import argparse
 from reconstruct.camera.fake_camera import RedWoodCamera
 
-from reconstruct.utils import TF_utils
-from reconstruct.utils import TFSearcher
-from reconstruct.utils import PCD_utils
+from reconstruct.utils_tool.utils import TF_utils
+from reconstruct.utils_tool.utils import PCD_utils
 
 class Frame(object):
     def __init__(self, idx, t_step):
@@ -157,7 +154,7 @@ class ReconSystem_AprilTag1(object):
             else:
                 self.step(rgb_file, depth_file, self.t_step)
 
-        nodes_list = list(self.frameHouse.frames_dict.values()) + list(self.frameHouse.landmarks_dict.values())
+        nodes_list = list(self.frameHouse.frames_dict.values())
         self.pose_graph_system.init_PoseGraph_Node(nodes_list)
 
         self.pose_graph_system.optimize_poseGraph()
