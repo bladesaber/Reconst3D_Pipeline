@@ -231,9 +231,9 @@ def main():
     #     scalingFactor=1000.0
     # )
     dataloader = KinectCamera(
-        dir='/home/quan/Desktop/tempary/redwood/test4',
-        intrinsics_path='/home/quan/Desktop/tempary/redwood/test4/intrinsic.json',
-        scalingFactor=1000.0, skip=5
+        dir='/home/quan/Desktop/tempary/redwood/test3',
+        intrinsics_path='/home/quan/Desktop/tempary/redwood/test3/intrinsic.json',
+        scalingFactor=1000.0, skip=4
     )
 
     config = {
@@ -241,7 +241,7 @@ def main():
         'height': dataloader.height,
         'depth_scale': 1.0,
         'tsdf_size': 0.02,
-        'min_depth_thre': 0.2,
+        'min_depth_thre': 0.05,
         'max_depth_thre': 3.0,
         'fitness_min_thre': 0.3,
         'fitness_thre': 0.5,
@@ -386,18 +386,25 @@ def main():
                             create_new_frame = infos['create_new_frame']
                             if create_new_frame:
                                 frame: Frame = infos['frame']
-                                frame_save_path = os.path.join(
-                                    '/home/quan/Desktop/tempary/redwood/test4/fragment/frame', '%d.pkl'%frame.idx
-                                )
-                                # recon_sys.save_frame(frame, frame_save_path)
 
-                                tsdf_pcd: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
-                                save_pcd_path = '/home/quan/Desktop/tempary/redwood/test4/fragment/pcd/%d.ply'%frame.idx
-                                o3d.io.write_point_cloud(save_pcd_path, tsdf_pcd)
-                                frame.info.update({
-                                    'pcd_file': save_pcd_path
-                                })
-                                recon_sys.save_frame(frame, frame_save_path)
+                                if self.t_step - frame.t_start_step<5:
+                                    recon_sys.frameHouse.graph_idx -= 1
+                                    del recon_sys.frameHouse.frames_dict[frame.idx]
+                                    print('[DEBUG]: Skip Frame')
+
+                                else:
+                                    frame_save_path = os.path.join(
+                                        '/home/quan/Desktop/tempary/redwood/test3/fragment/frame', '%d.pkl'%frame.idx
+                                    )
+
+                                    tsdf_pcd: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
+                                    save_pcd_path = '/home/quan/Desktop/tempary/redwood/test3/fragment/pcd/%d.ply'%frame.idx
+                                    o3d.io.write_point_cloud(save_pcd_path, tsdf_pcd)
+                                    frame.info.update({
+                                        'pcd_file': save_pcd_path
+                                    })
+                                    recon_sys.save_frame(frame, frame_save_path)
+
                                 recon_sys.has_init_step = False
 
                 cv2.waitKey(1)
@@ -407,12 +414,12 @@ def main():
         def last_save(self, vis: o3d.visualization.VisualizerWithKeyCallback):
             frame: Frame = recon_sys.frameHouse.frames_dict[recon_sys.last_frameIdx]
             frame_save_path = os.path.join(
-                '/home/quan/Desktop/tempary/redwood/test4/fragment/frame', '%d.pkl' % frame.idx
+                '/home/quan/Desktop/tempary/redwood/test3/fragment/frame', '%d.pkl' % frame.idx
             )
             # recon_sys.save_frame(frame, frame_save_path)
 
             tsdf_pcd: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
-            save_pcd_path = '/home/quan/Desktop/tempary/redwood/test4/fragment/pcd/%d.ply' % frame.idx
+            save_pcd_path = '/home/quan/Desktop/tempary/redwood/test3/fragment/pcd/%d.ply' % frame.idx
             o3d.io.write_point_cloud(save_pcd_path, tsdf_pcd)
             frame.info.update({
                 'pcd_file': save_pcd_path
@@ -421,5 +428,77 @@ def main():
 
     vis = DebugVisulizer()
 
+def run():
+    dataloader = KinectCamera(
+        dir='/home/quan/Desktop/tempary/redwood/test3',
+        intrinsics_path='/home/quan/Desktop/tempary/redwood/test3/intrinsic.json',
+        scalingFactor=1000.0, skip=5
+    )
+
+    config = {
+        'width': dataloader.width,
+        'height': dataloader.height,
+        'depth_scale': 1.0,
+        'tsdf_size': 0.02,
+        'min_depth_thre': 0.05,
+        'max_depth_thre': 3.0,
+        'fitness_min_thre': 0.3,
+        'fitness_thre': 0.5,
+        'voxel_size': 0.02
+    }
+    recon_sys = System_Extract_KeyFrame_ICP(dataloader.K, config=config)
+
+    t_step = 0
+    Tcw = np.eye(4)
+
+    while True:
+        status_data, (rgb_img, depth_img), (rgb_file, depth_file) = dataloader.get_img(with_path=True)
+
+        if status_data:
+            if not recon_sys.has_init_step:
+                run_status, Tcw, infos = recon_sys.init_step(
+                    rgb_img, depth_img, rgb_file, depth_file, t_step, init_Tcw=Tcw
+                )
+                if run_status:
+                    recon_sys.has_init_step = True
+
+            else:
+                run_status, Tcw, infos = recon_sys.step(
+                    rgb_img, depth_img, rgb_file, depth_file, t_step, init_Tcw=Tcw,
+                    new_frame_available=False
+                )
+                if run_status:
+
+                    create_new_frame = infos['create_new_frame']
+                    if create_new_frame:
+                        frame: Frame = infos['frame']
+
+                        if t_step - frame.t_start_step < 4:
+                            recon_sys.frameHouse.graph_idx -= 1
+                            del recon_sys.frameHouse.frames_dict[frame.idx]
+                            recon_sys.last_frameIdx -= 1
+                            print('[DEBUG]: Skip Frame')
+
+                        else:
+                            frame_save_path = os.path.join(
+                                '/home/quan/Desktop/tempary/redwood/test3/fragment/frame', '%d.pkl' % frame.idx
+                            )
+
+                            tsdf_pcd: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
+                            save_pcd_path = '/home/quan/Desktop/tempary/redwood/test3/fragment/pcd/%d.ply' % frame.idx
+                            o3d.io.write_point_cloud(save_pcd_path, tsdf_pcd)
+                            frame.info.update({
+                                'pcd_file': save_pcd_path
+                            })
+                            recon_sys.save_frame(frame, frame_save_path)
+
+                            recon_sys.has_init_step = False
+
+            t_step += 1
+
+        else:
+            break
+
 if __name__ == '__main__':
-    main()
+    # main()
+    run()

@@ -364,15 +364,15 @@ class TF_utils(object):
 
         return rot_c1c0, tvec_c1c0
 
-    def estimate_Tc1c0_RANSAC_Visual(
+    def estimate_Tc1c0_RANSAC_Correspond(
             self,
-            Pc0:np.array, Pc1:np.array,
+            Pcs0:np.array, Pcs1:np.array,
             n_sample=5, max_iter=1000,
             max_distance=0.03, inlier_thre=0.8
     ):
         status = False
 
-        n_points = Pc0.shape[0]
+        n_points = Pcs0.shape[0]
         p_idxs = np.arange(0, n_points, 1)
 
         if n_points < n_sample:
@@ -382,12 +382,12 @@ class TF_utils(object):
         diff_mean, inlier_ratio = 0.0, 0.0
         for i in range(max_iter):
             rand_idx = np.random.choice(p_idxs, size=n_sample, replace=False)
-            sample_Pc0 = Pc0[rand_idx, :]
-            sample_Pc1 = Pc1[rand_idx, :]
+            sample_Pc0 = Pcs0[rand_idx, :]
+            sample_Pc1 = Pcs1[rand_idx, :]
 
             rot_c1c0, tvec_c1c0 = self.kabsch_rmsd(Pc0=sample_Pc0, Pc1=sample_Pc1)
 
-            diff_mat = Pc1 - ((rot_c1c0.dot(Pc0.T)).T + tvec_c1c0)
+            diff_mat = Pcs1 - ((rot_c1c0.dot(Pcs0.T)).T + tvec_c1c0)
             diff = np.linalg.norm(diff_mat, axis=1, ord=2)
             inlier_bool = diff < max_distance
             n_inlier = inlier_bool.sum()
@@ -406,7 +406,8 @@ class TF_utils(object):
                 status = True
                 break
 
-        print('[DEBUG]: Diff Meam:%f Inlier Ratio:%f'%(diff_mean, inlier_ratio))
+        if status:
+            print('[DEBUG]: Diff Meam:%f Inlier Ratio:%f'%(diff_mean, inlier_ratio))
 
         return status, Tc1c0, mask
 
@@ -463,7 +464,7 @@ class TF_utils(object):
         Pc0 = (Kv.dot(uvds0.T)).T
         Pc1 = (Kv.dot(uvds1.T)).T
 
-        status, Tc1c0, mask = self.estimate_Tc1c0_RANSAC_Visual(
+        status, Tc1c0, mask = self.estimate_Tc1c0_RANSAC_Correspond(
             Pc0, Pc1, n_sample=n_sample, max_distance=diff_max_distance
         )
         print('[DEBUG]: Valid Ransac Feature: %d' % mask.sum())
