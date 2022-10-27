@@ -110,6 +110,7 @@ class KinectCamera(object):
             print('[DEBUG]: Loading DEPTH %s' % depth_path)
 
             rgb = cv2.imread(rgb_path)
+            rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
             depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
             if not raw_depth:
                 depth = depth.astype(np.float32)

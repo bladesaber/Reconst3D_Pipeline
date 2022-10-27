@@ -35,13 +35,11 @@ class ORBExtractor(object):
         search_params = dict(checks=50)
         self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
 
-    def extract_kp(self, gray, mask=None):
-        kps = self.extractor.detect(gray, mask=mask)
-        return kps
-
-    def extract_desc(self, gray, kps: cv2.KeyPoint):
-        _, desc = self.extractor.compute(gray, kps)
-        return desc
+    def extract_kp_desc(self, gray, mask=None):
+        kps_cv = self.extractor.detect(gray, mask=mask)
+        _, descs = self.extractor.compute(gray, kps_cv)
+        kps = cv2.KeyPoint_convert(kps_cv)
+        return kps, descs
 
     def match(self, desc0:np.array, desc1:np.array, match_thre=0.5, dist_thre=30.0):
         # matches = self.matcher.match(desc0, desc1)

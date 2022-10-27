@@ -9,10 +9,24 @@ import matplotlib.pyplot as plt
 import scipy
 from scipy import spatial
 
-from reconstruct.utils_tool.utils import TF_utils
-from reconstruct.utils_tool.visual_extractor import ORBExtractor_BalanceIter, SIFTExtractor
+from reconstruct.system1.cpp.build import dbow_python
 
-np.set_printoptions(suppress=True)
+extractor = cv2.ORB_create()
 
-pcd = o3d.io.read_point_cloud('/home/quan/Desktop/tempary/redwood/test4/fragment/result.ply')
-o3d.visualization.draw_geometries([pcd])
+dbow_coder = dbow_python.DBOW3_Library()
+voc = dbow_coder.createVoc(
+    branch_factor=9, tree_level=3,
+    weight_type=dbow_python.Voc_WeightingType.TF_IDF,
+    score_type=dbow_python.Voc_ScoringType.L1_NORM
+)
+print('\n ***************************')
+dbow_python.dbow_print(voc)
+
+img = cv2.imread('/home/quan/Desktop/tempary/redwood/test3/color/00020.jpg')
+gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+kps_cv = extractor.detect(gray)
+_, descs = extractor.compute(gray, kps_cv)
+dbow_coder.addVoc(voc=voc, features=[descs])
+
+print('\n *******************************')
+dbow_python.dbow_print(voc)
