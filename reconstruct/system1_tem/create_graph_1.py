@@ -983,12 +983,12 @@ def main():
     }
     recon_sys = GraphSystem_Visual(args.intrinsics_path, config_visual)
 
-    files = os.listdir(args.fragment_dir)
-    frame_files = []
-    for file in files:
-        frame_path = os.path.join(args.fragment_dir, file)
-        frame_files.append(frame_path)
-    recon_sys.make_fragment(frame_files)
+    # files = os.listdir(args.fragment_dir)
+    # frame_files = []
+    # for file in files:
+    #     frame_path = os.path.join(args.fragment_dir, file)
+    #     frame_files.append(frame_path)
+    # recon_sys.make_fragment(frame_files)
 
     # fragment_dir = '/home/quan/Desktop/tempary/redwood/test4/fragment/vis_frame'
     # files = os.listdir(fragment_dir)
@@ -998,16 +998,16 @@ def main():
     #     fragment_files.append(fragment_path)
     # recon_sys.run_fragment(fragment_files)
 
-    # fragment_dir = '/home/quan/Desktop/tempary/redwood/test4/fragment/vis_frame'
-    # files = os.listdir(fragment_dir)
-    # fragment_files = []
-    # for file in files:
-    #     fragment_path = os.path.join(fragment_dir, file)
-    #     fragment_files.append(fragment_path)
-    # additiona_graph = np.load(
-    #     '/home/quan/Desktop/tempary/redwood/test4/fragment/additional_graph.npy', allow_pickle=True
-    # )
-    # recon_sys.wholdGraph_opt(fragment_files, additiona_graph)
+    fragment_dir = '/home/quan/Desktop/tempary/redwood/test4/fragment/vis_frame'
+    files = os.listdir(fragment_dir)
+    fragment_files = []
+    for file in files:
+        fragment_path = os.path.join(fragment_dir, file)
+        fragment_files.append(fragment_path)
+    additiona_graph = np.load(
+        '/home/quan/Desktop/tempary/redwood/test4/fragment/additional_graph.npy', allow_pickle=True
+    )
+    recon_sys.wholdGraph_opt(fragment_files, additiona_graph)
 
     # fragment_dir = '/home/quan/Desktop/tempary/redwood/test4/fragment/vis_frame'
     # pose_graph_json = '/home/quan/Desktop/tempary/redwood/test4/fragment/pose_graph.json'

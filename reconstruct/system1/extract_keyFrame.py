@@ -189,6 +189,7 @@ class System_Extract_KeyFrame(object):
         assert frame_path.endswith('.pkl')
         assert pcd_path.endswith('.ply')
 
+        frame.Pws_o3d_file = pcd_path
         with open(frame_path, 'wb') as f:
             pickle.dump(frame, f)
         o3d.io.write_point_cloud(pcd_path, Pws_o3d)

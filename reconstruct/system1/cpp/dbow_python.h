@@ -23,9 +23,15 @@ void dbow_print(DBoW3::BowVector &v) {
 }
 
 void dbow_print(DBoW3::Vocabulary& voc) {
-    std::cout << "[DEBUG] DBOW: Ptr: " << voc << std::endl;
-    std::cout << "[DEBUG] DBOW: Words size: " << voc.size() << std::endl;
-    std::cout << "[DEBUG] DBOW: Descritor size: " << voc.getDescritorSize() << std::endl;
+    std::cout << "[DEBUG] DBOW Vocabulary: Ptr: " << voc << std::endl;
+    std::cout << "[DEBUG] DBOW Vocabulary: Words size: " << voc.size() << std::endl;
+    std::cout << "[DEBUG] DBOW Vocabulary: Descritor size: " << voc.getDescritorSize() << std::endl;
+}
+
+void dbow_print(DBoW3::Database& db) {
+    std::cout << "[DEBUG] DBOW Database: Ptr: " << db << std::endl;
+    std::cout << "[DEBUG] DBOW Database: DataBase size: " << db.size() << std::endl;
+    std::cout << "[DEBUG] DBOW Database: Vocabulary size: " << *db.getVocabulary() << std::endl;
 }
 
 void debug(py::array_t<uint8_t>& img){
@@ -63,6 +69,18 @@ public:
         return db;
     }
 
+    DBoW3::Database createDb(bool use_di = false, int di_level = 0, bool log= false) {
+        DBoW3::Database db(use_di, di_level);
+        if (log) {
+            std::cout << "[Debug] DBOW: Create Database Success" << std::endl;
+        }
+        return db;
+    }
+
+    void set_Voc2DB(DBoW3::Vocabulary& voc, DBoW3::Database& db) {
+        db.setVocabulary(voc);
+    }
+
     DBoW3::Vocabulary loadVoc(std::string &filename, bool log= false) {
         DBoW3::Vocabulary voc;
         voc.load(filename);
@@ -72,6 +90,15 @@ public:
         }
         return voc;
     }
+
+    DBoW3::Database loadDb(std::string &filename, bool log= false) {
+        DBoW3::Database db(filename);
+        if (log) {
+            std::cout << "[Debug] DBOW: Load Database: " << filename << std::endl;
+            std::cout << "[Debug] DBOW: Load Database Success" << std::endl;
+        }
+        return db;
+    };
 
     DBoW3::Database loadDb(DBoW3::Database& db, std::string &filename, bool log= false) {
         db.load(filename);
@@ -109,6 +136,11 @@ public:
         return idx;
     }
 
+    unsigned int addDB(DBoW3::Database& db, DBoW3::BowVector& v) {
+        unsigned int idx = db.add(v);
+        return idx;
+    }
+
     void saveDB(DBoW3::Database& db, std::string &filename) const {
         db.save(filename);
     }
@@ -123,12 +155,18 @@ public:
         return score;
     }
 
-    std::vector<DBoW3::Result> query(DBoW3::Database& db, py::array_t<uint8_t> &features, int max_results) const {
+    std::vector<DBoW3::Result> query(DBoW3::Database& db, py::array_t<uint8_t> &features, int max_results) {
         py::buffer_info buf = features.request();
         cv::Mat mat(buf.shape[0], buf.shape[1], CV_8U, (unsigned char*)buf.ptr);
 
         DBoW3::QueryResults ret;
         db.query(mat, ret, max_results);
+        return ret;
+    }
+
+    std::vector<DBoW3::Result> query(DBoW3::Database& db, DBoW3::BowVector &v, int max_results) {
+        DBoW3::QueryResults ret;
+        db.query(v, ret, max_results);
         return ret;
     }
 
@@ -141,6 +179,15 @@ public:
         return v;
     }
 
+    DBoW3::BowVector transform(DBoW3::Database& db, py::array_t<uint8_t>& features){
+        py::buffer_info buf = features.request();
+        cv::Mat mat(buf.shape[0], buf.shape[1], CV_8U, (unsigned char*)buf.ptr);
+
+        DBoW3::BowVector v;
+        db.getVocabulary()->transform(mat, v);
+        return v;
+    }
+
 };
 
 void declareDBOWTypes(py::module &m) {
@@ -148,6 +195,7 @@ void declareDBOWTypes(py::module &m) {
 
     m.def("dbow_print", py::overload_cast<DBoW3::BowVector &>(&dbow_print));
     m.def("dbow_print", py::overload_cast<DBoW3::Vocabulary &>(&dbow_print));
+    m.def("dbow_print", py::overload_cast<DBoW3::Database &>(&dbow_print));
 
     py::enum_<DBoW3::WeightingType>(m, "Voc_WeightingType")
             .value("TF_IDF", DBoW3::WeightingType::TF_IDF)
@@ -184,17 +232,23 @@ void declareDBOWTypes(py::module &m) {
             .def(py::init<>())
             .def("createVoc", &DBOW3_Library::createVoc,"branch_factor"_a, "tree_level"_a, "weight_type"_a, "score_type"_a, "log"_a= false)
             .def("loadVoc", &DBOW3_Library::loadVoc, "filename"_a, "log"_a= false)
-            .def("createDb", &DBOW3_Library::createDb, "voc"_a, "use_di"_a, "di_level"_a, "log"_a= false)
-            .def("loadDb", &DBOW3_Library::loadDb, "db"_a, "filename"_a, "log"_a= false)
+            .def("createDb", py::overload_cast<DBoW3::Vocabulary&, bool, int, bool>(&DBOW3_Library::createDb), "voc"_a, "use_di"_a, "di_level"_a, "log"_a= false)
+            .def("createDb", py::overload_cast<bool, int, bool>(&DBOW3_Library::createDb), "use_di"_a, "di_level"_a, "log"_a= false)
+            .def("set_Voc2DB", &DBOW3_Library::set_Voc2DB, "voc"_a, "db"_a)
+            .def("loadDb", py::overload_cast<std::string&, bool>(&DBOW3_Library::loadDb), "filename"_a, "log"_a= false)
+            .def("loadDb", py::overload_cast<DBoW3::Database&, std::string&, bool>(&DBOW3_Library::loadDb), "db"_a, "filename"_a, "log"_a= false)
             .def("addVoc", &DBOW3_Library::addVoc, "voc"_a, "features"_a)
             .def("saveVoc", &DBOW3_Library::saveVoc, "voc"_a, "filename"_a, "binary_compressed"_a=true)
             .def("clearVoc", &DBOW3_Library::clearVoc, "voc"_a)
-            .def("addDB", &DBOW3_Library::addDB, "db"_a, "features"_a)
+            .def("addDB", py::overload_cast<DBoW3::Database&, py::array_t<uint8_t>&>(&DBOW3_Library::addDB), "db"_a, "features"_a)
+            .def("addDB", py::overload_cast<DBoW3::Database&, DBoW3::BowVector&>(&DBOW3_Library::addDB), "db"_a, "v"_a)
             .def("saveDB", &DBOW3_Library::saveDB, "db"_a, "filename"_a)
             .def("clearDB", &DBOW3_Library::clearDB, "db"_a)
             .def("score", &DBOW3_Library::score, "voc"_a, "v0"_a, "v1"_a)
-            .def("query", &DBOW3_Library::query, "db"_a, "features"_a, "max_results"_a)
-            .def("transform", &DBOW3_Library::transform, "voc"_a, "features"_a);
+            .def("query", py::overload_cast<DBoW3::Database&, py::array_t<uint8_t>&, int>(&DBOW3_Library::query), "db"_a, "features"_a, "max_results"_a)
+            .def("query", py::overload_cast<DBoW3::Database&, DBoW3::BowVector&, int>(&DBOW3_Library::query), "db"_a, "v"_a, "max_results"_a)
+            .def("transform", py::overload_cast<DBoW3::Vocabulary&, py::array_t<uint8_t>&>(&DBOW3_Library::transform), "voc"_a, "features"_a)
+            .def("transform", py::overload_cast<DBoW3::Database&, py::array_t<uint8_t>&>(&DBOW3_Library::transform), "db"_a, "features"_a);
 
 }
 

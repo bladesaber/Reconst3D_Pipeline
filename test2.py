@@ -6,27 +6,55 @@ import random
 import time
 import cv2
 import matplotlib.pyplot as plt
+import os
 import scipy
 from scipy import spatial
+import pickle
+import networkx as nx
 
-from reconstruct.system1.cpp.build import dbow_python
+from reconstruct.system1.dbow_utils import DBOW_Utils
 
-extractor = cv2.ORB_create()
+# voc_path = '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz'
+# extractor = cv2.ORB_create()
+# dbow_coder = DBOW_Utils()
+#
+# voc = dbow_coder.load_voc(voc_path, log=True)
+# print('[DEBUG]: VOC:')
+# dbow_coder.printVOC(voc)
+#
+# db = dbow_coder.create_db()
+# dbow_coder.set_Voc2DB(voc, db)
+# print('[DEBUG]: DataBase:')
+# dbow_coder.printDB(db)
+#
+# i_idxs = list(range(0, 19, 1))
+#
+# for idx in range(10):
+#     file = '/home/quan/Desktop/tempary/redwood/test3/color/%.5d.jpg'%idx
+#     assert os.path.exists(file)
+#     img = cv2.imread(file)
+#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#     kps_cv = extractor.detect(gray)
+#     _, descs = extractor.compute(gray, kps_cv)
+#
+#     vector = dbow_coder.transform_from_db(db, descs)
+#     img_idx = dbow_coder.add_DB_from_vector(db, vector)
+#
+# print('[DEBUG]: DataBase:')
+# dbow_coder.printDB(db)
+#
+# # dbow_coder.save_DB(db, '/home/quan/Desktop/tempary/redwood/test3/test_db.yml.gz')
+# # db = dbow_coder.create_db_from_file('/home/quan/Desktop/tempary/redwood/test3/test_db.yml.gz', log=True)
+# # dbow_coder.printDB(db)
 
-dbow_coder = dbow_python.DBOW3_Library()
-voc = dbow_coder.createVoc(
-    branch_factor=9, tree_level=3,
-    weight_type=dbow_python.Voc_WeightingType.TF_IDF,
-    score_type=dbow_python.Voc_ScoringType.L1_NORM
-)
-print('\n ***************************')
-dbow_python.dbow_print(voc)
+graph = nx.Graph()
+graph.add_node(1)
+graph.add_node(2)
+graph.add_node(3)
+graph.add_node(4)
 
-img = cv2.imread('/home/quan/Desktop/tempary/redwood/test3/color/00020.jpg')
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-kps_cv = extractor.detect(gray)
-_, descs = extractor.compute(gray, kps_cv)
-dbow_coder.addVoc(voc=voc, features=[descs])
+graph.add_edge(2, 3)
+graph.add_edge(4, 3)
 
-print('\n *******************************')
-dbow_python.dbow_print(voc)
+nx.draw(graph, with_labels=True, font_weight='bold')
+plt.show()

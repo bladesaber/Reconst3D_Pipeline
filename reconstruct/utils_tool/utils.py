@@ -239,6 +239,16 @@ class PCD_utils(object):
 
         return uvds
 
+    def kps2uvds(self, kps, depth_img, max_depth_thre, min_depth_thre):
+        kps_int = np.round(kps).astype(np.int64)
+        ds = depth_img[kps_int[:, 1], kps_int[:, 0]]
+        uvds = np.concatenate([kps, ds.reshape((-1, 1))], axis=1)
+
+        uvds = uvds[uvds[:, 2] < max_depth_thre]
+        uvds = uvds[uvds[:, 2] > min_depth_thre]
+
+        return uvds
+
 class TF_utils(object):
 
     ### ----------- ICP Method -----------
@@ -376,6 +386,7 @@ class TF_utils(object):
         p_idxs = np.arange(0, n_points, 1)
 
         if n_points < n_sample:
+            # print('[DEBUG]: Estimate Tc1c0 RANSAC, Points is not Enough')
             return False, np.identity(4), []
 
         Tc1c0, mask = None, None
