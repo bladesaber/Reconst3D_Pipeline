@@ -4,8 +4,11 @@ import open3d as o3d
 import pandas as pd
 import cv2
 from typing import List
+import networkx as nx
+import pickle
+import matplotlib.pyplot as plt
 
-from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
+# from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
 
 def quaternion_to_rotationMat_scipy(quaternion):
     r = transform.Rotation(quat=quaternion)
@@ -673,5 +676,74 @@ class TFSearcher(object):
             'count': Tc1c0_info['count']
         }
 
+
+class NetworkGraph_utils(object):
+    def create_graph(self):
+        graph = nx.Graph()
+        return graph
+
+    def add_node(self, graph: nx.Graph, idx):
+        graph.add_node(idx)
+
+    def add_edge(self, graph: nx.Graph, idx0, idx1):
+        graph.add_edge(idx0, idx1)
+
+    def remove_node_from_degree(self, graph: nx.Graph, degree_thre, recursion=False):
+        running = True
+
+        while running:
+            remove_nodeIdxs = []
+            for node_idx, degree in graph.degree:
+                if degree < degree_thre:
+                    remove_nodeIdxs.append(node_idx)
+
+            if len(remove_nodeIdxs) > 0:
+                graph.remove_nodes_from(remove_nodeIdxs)
+
+            if not recursion:
+                break
+
+            running = len(remove_nodeIdxs) > 0
+
+        return graph
+
+    def remove_graph_from_NodeNum(self, sub_graphs:List[nx.Graph], nodeNum):
+        filter_graphs = []
+        for graph in sub_graphs:
+            if graph.number_of_nodes() < nodeNum:
+                continue
+            filter_graphs.append(graph)
+        return filter_graphs
+
+    def get_SubConnectGraph(self, graph: nx.Graph):
+        sub_graphs = []
+        for subGraph_nodeIdxs in nx.connected_components(graph):
+            sub_graph = graph.subgraph(subGraph_nodeIdxs)
+            sub_graphs.append(sub_graph)
+        return sub_graphs
+
+    def save_graph(self, graph: nx.Graph, path:str):
+        assert path.endswith('.pkl')
+        pickle.dump(graph, open(path, 'wb'))
+
+    def load_graph(self, path:str) -> nx.Graph:
+        assert path.endswith('.pkl')
+        graph = pickle.load(open(path, 'rb'))
+        graph = nx.Graph(graph)
+        return graph
+
+    def plot_graph(self, graph: nx.Graph):
+        nx.draw(graph, with_labels=True, font_weight='bold')
+        plt.show()
+
+    def plot_graph_from_file(self, graph_file):
+        graph = self.load_graph(graph_file)
+        nx.draw(graph, with_labels=True, font_weight='bold')
+        plt.show()
+
 # class Optimizer_BundleAdjustment(object):
 #     def
+
+if __name__ == '__main__':
+    network_coder = NetworkGraph_utils()
+    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test3/refine/network/graph_0_refine.pkl')
