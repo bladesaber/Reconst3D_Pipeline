@@ -33,7 +33,7 @@ class MergeSystem(object):
         self.dbow_coder = DBOW_Utils()
         self.networkx_coder = NetworkGraph_utils()
 
-        # self.extractor = ORBExtractor(nfeatures=500)
+        # self.extractor = ORBExtractor(nfeatures=1500)
         self.extractor = ORBExtractor_BalanceIter(radius=3, max_iters=10, single_nfeatures=50, nfeatures=500)
         self.refine_extractor = SIFTExtractor(nfeatures=500)
 
@@ -170,20 +170,14 @@ class MergeSystem(object):
 
         self.networkx_coder.save_graph(whole_network, os.path.join(iteration_dir, 'original_graph.pkl'))
 
-    def poseGraph_opt(self, fragment_dir, graph_path, iteration_dir):
+    def poseGraph_opt_for_fragment(self, fragment_dir, graph_path, iteration_dir):
         refine_match_infos: Dict = np.load(os.path.join(iteration_dir, 'refine_match_info.npy'), allow_pickle=True).item()
         whole_network = self.networkx_coder.load_graph(os.path.join(iteration_dir, graph_path))
 
-        fragment_files = os.listdir(fragment_dir)
-        fragments_dict = {}
-        for file in fragment_files:
-            fragment_path = os.path.join(fragment_dir, file)
-            fragment: Fragment = load_fragment(fragment_path)
-            fragments_dict[fragment.idx] = fragment
-
         poseGraph_system = PoseGraph_System()
-        nodes = np.array([None] * len(fragments_dict))
+        nodes = np.array([None] * whole_network.number_of_nodes())
         fragmentId_to_NodeId = {}
+        fragments_dict = {}
 
         for nodeIdx, fragment_idx in enumerate(whole_network.nodes):
             fragment_path = os.path.join(fragment_dir, 'fragment_%d.pkl'%fragment_idx)
@@ -220,6 +214,97 @@ class MergeSystem(object):
         fragmentId_to_NodeId_json = os.path.join(iteration_dir, 'fragmentId_to_NodeId.json')
         with open(fragmentId_to_NodeId_json, 'w') as f:
             json.dump(fragmentId_to_NodeId, f)
+
+    def poseGraph_opt_for_tStep(self, fragment_dir, graph_path, iteration_dir):
+        refine_match_infos: Dict = np.load(
+            os.path.join(iteration_dir, 'refine_match_info.npy'), allow_pickle=True
+        ).item()
+        whole_network = self.networkx_coder.load_graph(os.path.join(iteration_dir, graph_path))
+
+        tStep_info = {}
+        fragment_2_tStep = {}
+        for fragment_idx in whole_network.nodes:
+            fragment_path = os.path.join(fragment_dir, 'fragment_%d.pkl' % fragment_idx)
+            fragment: Fragment = load_fragment(fragment_path)
+
+            fragment_2_tStep[fragment.idx] = fragment.t_start_step
+            for tStep in fragment.info.keys():
+                info = fragment.info[tStep]
+                T_c_frag = info['T_c_frag']
+                Tcw = T_c_frag.dot(fragment.Tcw)
+                info.update({'Tcw': Tcw})
+                tStep_info[tStep] = info
+
+        tStep_sequence = sorted(list(tStep_info.keys()))
+        tStep_to_NodeIdx = {}
+
+        poseGraph_system = PoseGraph_System()
+        nodes = np.array([None] * len(tStep_sequence))
+
+        for nodeIdx_j, tStep_j in enumerate(tStep_sequence):
+            T_cj_w = tStep_info[tStep_j]['Tcw']
+
+            nodes[nodeIdx_j] = o3d.pipelines.registration.PoseGraphNode(np.linalg.inv(T_cj_w))
+            tStep_to_NodeIdx[tStep_j] = nodeIdx_j
+
+            if nodeIdx_j > 0:
+                nodeIdx_i = nodeIdx_j - 1
+                tStep_i = tStep_sequence[nodeIdx_i]
+
+                T_ci_w = tStep_info[tStep_i]['Tcw']
+                T_cj_ci = T_cj_w.dot(np.linalg.inv(T_ci_w))
+
+                poseGraph_system.add_Edge(
+                    idx0=nodeIdx_i, idx1=nodeIdx_j, Tc1c0=T_cj_ci, info=np.eye(6) * 100.0, uncertain=True
+                )
+
+        for key in refine_match_infos.keys():
+            fragment_i_idx, fragment_j_idx = key
+            T_info_list = refine_match_infos[key]
+            tStep_i = fragment_2_tStep[fragment_i_idx]
+            tStep_j = fragment_2_tStep[fragment_j_idx]
+            nodeIdx_i = tStep_to_NodeIdx[tStep_i]
+            nodeIdx_j = tStep_to_NodeIdx[tStep_j]
+
+            for T_cj_ci, icp_info, uncertain in T_info_list:
+                if uncertain:
+                    continue
+
+                poseGraph_system.add_Edge(
+                    idx0=nodeIdx_i, idx1=nodeIdx_j, Tc1c0=T_cj_ci, info=icp_info, uncertain=False
+                )
+
+        poseGraph_system.pose_graph.nodes.extend(list(nodes))
+        poseGraph_system.optimize_poseGraph(
+            max_correspondence_distance=0.05,
+            edge_prune_threshold=0.25,
+            preference_loop_closure=5.0,
+            reference_node=0
+        )
+        # poseGraph_system.save_graph(os.path.join(iteration_dir, 'pose_graph.json'))
+
+        K_o3d = o3d.camera.PinholeCameraIntrinsic(
+            width=self.width, height=self.height,
+            fx=self.K[0, 0], fy=self.K[1, 1], cx=self.K[0, 2], cy=self.K[1, 2]
+        )
+        tsdf_model = o3d.pipelines.integration.ScalableTSDFVolume(
+            voxel_length=self.config['tsdf_size'],
+            sdf_trunc=3 * self.config['tsdf_size'],
+            color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
+        )
+        for tStep in tStep_sequence:
+            nodeIdx = tStep_to_NodeIdx[tStep]
+            Twc = poseGraph_system.pose_graph.nodes[nodeIdx].pose
+
+            info = tStep_info[tStep]
+            rgb_img, depth_img = Fragment.load_rgb_depth(
+                info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
+            )
+            rgbd_o3d = self.pcd_coder.rgbd2rgbd_o3d(rgb_img, depth_img, depth_trunc=self.config['max_depth_thre'])
+            tsdf_model.integrate(rgbd_o3d, K_o3d, np.linalg.inv(Twc))
+
+        model = tsdf_model.extract_point_cloud()
+        o3d.io.write_point_cloud('/home/quan/Desktop/tempary/redwood/test5/iteration_1/result_frame.ply', model)
 
     def integrate_fragment_check(self, fragment_dir, iteration_dir):
         fragment_files = os.listdir(fragment_dir)
@@ -433,15 +518,15 @@ class MergeSystem(object):
             rgb_i, depth_i = Fragment.load_rgb_depth(info_i['rgb_file'], info_i['depth_file'])
             gray_i = cv2.cvtColor(rgb_i, cv2.COLOR_BGR2GRAY)
             mask_i = Fragment.create_mask(depth_i, self.config['max_depth_thre'], self.config['min_depth_thre'])
-            kps_i, descs_i = self.extractor.extract_kp_desc(gray_i, mask=mask_i)
+            kps_i, descs_i = self.refine_extractor.extract_kp_desc(gray_i, mask=mask_i)
 
             info_j = fragment_j.info[tStep_j]
             rgb_j, depth_j = Fragment.load_rgb_depth(info_j['rgb_file'], info_j['depth_file'])
             gray_j = cv2.cvtColor(rgb_j, cv2.COLOR_BGR2GRAY)
             mask_j = Fragment.create_mask(depth_j, self.config['max_depth_thre'], self.config['min_depth_thre'])
-            kps_j, descs_j = self.extractor.extract_kp_desc(gray_j, mask=mask_j)
+            kps_j, descs_j = self.refine_extractor.extract_kp_desc(gray_j, mask=mask_j)
 
-            (midxs_i, midxs_j), _ = self.extractor.match(descs_i, descs_j)
+            (midxs_i, midxs_j), _ = self.refine_extractor.match(descs_i, descs_j)
 
             print('[DEBUG] Match Check: %s:%s <-> %s:%s %f' % (
                 fragment_i, info_i['rgb_file'], fragment_j, info_j['rgb_file'], score
@@ -457,6 +542,23 @@ class MergeSystem(object):
             if key == ord('q'):
                 return
 
+    ### -------- todo unfinish
+    def network_split(self, iteration_dir, sub_graphes_dir):
+        whole_network = self.networkx_coder.load_graph(os.path.join(iteration_dir, 'original_graph.pkl'))
+
+        sub_graphes = self.networkx_coder.find_largest_cycle(whole_network)
+        for idx, sub_graph in enumerate(sub_graphes):
+            self.networkx_coder.save_graph(sub_graph, os.path.join(sub_graphes_dir, 'fragment_graph_%d.pkl'%idx))
+
+    def debug(self, fragment_dir):
+        fragment_files = os.listdir(fragment_dir)
+
+        for file in fragment_files:
+            fragment_path = os.path.join(fragment_dir, file)
+            fragment: Fragment = load_fragment(fragment_path)
+
+            fragment.extract_refine_Pcs(self.extractor, self.config)
+
 def main():
     config = {
         'max_depth_thre': 7.0,
@@ -465,24 +567,34 @@ def main():
         'voxel_size': 0.02,
         'visual_ransac_max_distance': 0.05,
         'visual_ransac_inlier_thre': 0.7,
-        'tsdf_size': 0.02,
+        'tsdf_size': 0.01,
 
         'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test5/intrinsic.json',
         'vocabulary_path': '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz',
         'fragment_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_1/fragment',
         'iteration_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_1',
-        'result_ply': '/home/quan/Desktop/tempary/redwood/test5/iteration_1/result.ply'
+        'result_ply': '/home/quan/Desktop/tempary/redwood/test5/iteration_1/result.ply',
+        'sub_graphes_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_1/sub_graphes',
     }
 
     recon_sys = MergeSystem(config)
 
+    ### --- debug here
+    # recon_sys.debug(
+    #     fragment_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_1/fragment'
+    # )
+
+    ### --- run here
     # recon_sys.init_fragment(config['fragment_dir'], config['iteration_dir'], config)
 
     # recon_sys.extract_fragment_match_pair(config['fragment_dir'], config['iteration_dir'])
 
     # recon_sys.refine_match_pair(config['fragment_dir'], config['iteration_dir'])
 
-    # recon_sys.poseGraph_opt(config['fragment_dir'], 'original_graph.pkl', config['iteration_dir'])
+    # recon_sys.network_split(config['iteration_dir'], config['sub_graphes_dir'])
+
+    # recon_sys.poseGraph_opt_for_fragment(config['fragment_dir'], 'original_graph.pkl', config['iteration_dir'])
+    # recon_sys.poseGraph_opt_for_tStep(config['fragment_dir'], 'original_graph.pkl', config['iteration_dir'])
 
     # recon_sys.integrate_fragment_check(config['fragment_dir'], config['iteration_dir'])
 

@@ -5,6 +5,7 @@ import pandas as pd
 import cv2
 from typing import List
 import networkx as nx
+from copy import deepcopy
 import pickle
 import matplotlib.pyplot as plt
 
@@ -740,6 +741,55 @@ class NetworkGraph_utils(object):
         graph = self.load_graph(graph_file)
         nx.draw(graph, with_labels=True, font_weight='bold')
         plt.show()
+
+    def find_largest_cycle(self, graph: nx.Graph):
+        '''
+        该方法默认预先存在一条单向连接链条
+        '''
+
+        sub_graph_pair = []
+        candidate_idxs_set = [0]
+        max_node_idx = np.max(graph.nodes)
+
+        while True:
+            best_orig_idx, best_end_idx = -1, -1
+
+            for edge in graph.edges:
+                edge_idx0, edge_idx1 = edge
+
+                if edge_idx0 not in candidate_idxs_set:
+                    continue
+
+                if edge_idx1>best_end_idx:
+                    best_orig_idx = edge_idx0
+                    best_end_idx = edge_idx1
+
+            if best_end_idx == -1:
+                break
+
+            if best_end_idx in candidate_idxs_set:
+                current_max_reach_idx = np.max(candidate_idxs_set)
+                candidate_idxs_set = [current_max_reach_idx+1]
+                continue
+
+            sub_graph_pair.append([best_orig_idx, best_end_idx])
+            candidate_idxs_set.extend(list(range(best_orig_idx, best_end_idx+1, 1)))
+            candidate_idxs_set = list(set(candidate_idxs_set))
+
+            if max_node_idx in candidate_idxs_set:
+                break
+
+        sub_graphes = []
+        for orig_idx, end_idx in sub_graph_pair:
+            contain_idxs = list(range(orig_idx, end_idx+1))
+            diff_idxs = np.setdiff1d(graph.nodes, contain_idxs)
+
+            sub_graph = deepcopy(graph)
+            sub_graph.remove_nodes_from(diff_idxs)
+
+            sub_graphes.append(sub_graph)
+
+        return sub_graphes
 
 # class Optimizer_BundleAdjustment(object):
 #     def

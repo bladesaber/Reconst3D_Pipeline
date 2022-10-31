@@ -66,6 +66,33 @@ class Fragment(object):
         model = tsdf_model.extract_point_cloud()
         o3d.io.write_point_cloud(path, model)
 
+    def extract_refine_Pcs(self, extractor: ORBExtractor, config):
+        ### todo unfinish
+
+        frame_sequence = sorted(list(self.info.keys()))
+
+        tStep0, tStep1 = frame_sequence[0], frame_sequence[-1]
+        info0, info1 = self.info[tStep0], self.info[tStep1]
+
+        rgb0_img, depth0_img = Fragment.load_rgb_depth(info0['rgb_file'], info0['depth_file'])
+        gray0_img = cv2.cvtColor(rgb0_img, cv2.COLOR_BGR2GRAY)
+        mask0_img = Fragment.create_mask(depth0_img, config['max_depth_thre'], config['min_depth_thre'])
+        kps0, descs0 = extractor.extract_kp_desc(gray0_img, mask=mask0_img)
+
+        rgb1_img, depth1_img = Fragment.load_rgb_depth(info1['rgb_file'], info1['depth_file'])
+        gray1_img = cv2.cvtColor(rgb1_img, cv2.COLOR_BGR2GRAY)
+        mask1_img = Fragment.create_mask(depth1_img, config['max_depth_thre'], config['min_depth_thre'])
+        kps1, descs1 = extractor.extract_kp_desc(gray1_img, mask=mask1_img)
+
+        (midxs0, midxs1), _ = extractor.match(descs0, descs1)
+        assert midxs0.shape[0] > 0
+
+        kps0, kps1 = kps0[midxs0], kps1[midxs1]
+
+        show_img = self.draw_matches(rgb0_img, kps0, rgb1_img, kps1, scale=0.7)
+        cv2.imshow('debug', show_img)
+        cv2.waitKey(0)
+
     def extract_features(self, voc, dbow_coder: DBOW_Utils, extractor: ORBExtractor, config):
         self.db = dbow_coder.create_db()
         dbow_coder.set_Voc2DB(voc, self.db)
@@ -267,68 +294,7 @@ def load_fragment(path: str) -> Fragment:
     return fragment
 
 def debug():
-    from reconstruct.system1.extract_keyFrame import Frame
 
-    save_dir = '/home/quan/Desktop/tempary/redwood/test5/iteration_1/fragment'
-    dir = '/home/quan/Desktop/tempary/redwood/test3/frame'
-    for file in os.listdir(dir):
-        path = os.path.join(dir, file)
-        with open(path, 'rb') as f:
-            frame:Frame = pickle.load(f)
-
-        idx = file.split('.')[0]
-        assert idx.isnumeric()
-
-        fragment = Fragment(idx=frame.idx, t_step=frame.t_start_step)
-        fragment.info.update(frame.info)
-        # fragment.Pws_o3d_file = frame.Pws_o3d_file.replace('test3', 'test5/iteration_1')
-        fragment.set_Tcw(frame.Tcw)
-        fragment.idx = frame.idx
-        fragment.t_start_step = frame.t_start_step
-
-        save_fragment(
-            os.path.join(save_dir, 'fragment_%d.pkl'%fragment.idx), fragment
-        )
-
-    # from reconstruct.camera.fake_camera import KinectCamera
-    #
-    # instrics_dict = KinectCamera.load_instrincs('/home/quan/Desktop/tempary/redwood/test5/intrinsic.json')
-    # K = np.eye(3)
-    # K[0, 0] = instrics_dict['fx']
-    # K[1, 1] = instrics_dict['fy']
-    # K[0, 2] = instrics_dict['cx']
-    # K[1, 2] = instrics_dict['cy']
-    # width = instrics_dict['width']
-    # height = instrics_dict['height']
-    #
-    # pcd_coder = PCD_utils()
-    #
-    # config = {
-    #     'max_depth_thre': 7.0,
-    #     'min_depth_thre': 0.1,
-    #     'scalingFactor': 1000.0,
-    #     'tsdf_size': 0.02,
-    # }
-    #
-    # fragment_dir = '/home/quan/Desktop/tempary/redwood/test5/iteration_1/fragment'
-    # for file in tqdm(os.listdir(fragment_dir)):
-    #     path = os.path.join(fragment_dir, file)
-    #     fragment = load_fragment(path)
-    #     fragment.transform_info_Tcw_to_Tc_frag()
-    #
-    #     Pcs_file = os.path.join('/home/quan/Desktop/tempary/redwood/test5/iteration_1/pcd', '%d.ply'%fragment.idx)
-    #     fragment.extract_Pcs(
-    #         width, height, K,
-    #         config=config, pcd_coder=pcd_coder,
-    #         path=Pcs_file
-    #     )
-    #
-    #     fragment.Pcs_o3d_file = Pcs_file
-    #     save_fragment(path, fragment)
-
-    # fragment: Fragment = load_fragment('/home/quan/Desktop/tempary/redwood/test5/iteration_1/fragment/fragment_10.pkl')
-    # print(fragment.idx)
-    # print(fragment.Pcs_o3d_file)
 
     pass
 
