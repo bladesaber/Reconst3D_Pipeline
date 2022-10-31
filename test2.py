@@ -47,7 +47,7 @@ from reconstruct.system1.dbow_utils import DBOW_Utils
 # # db = dbow_coder.create_db_from_file('/home/quan/Desktop/tempary/redwood/test3/test_db.yml.gz', log=True)
 # # dbow_coder.printDB(db)
 
-graph = nx.Graph()
+graph = nx.MultiGraph()
 graph.add_node(1)
 graph.add_node(2)
 graph.add_node(3)
@@ -64,15 +64,21 @@ graph.add_edge(2, 3)
 graph.add_edge(3, 10)
 graph.add_edge(10, 1)
 
-graph.add_edge(4, 5)
-graph.add_edge(4, 6)
+graph.add_edge(4, 5, 'a')
+graph.add_edge(4, 5, 'v')
+graph.add_edge(4, 6, 'b')
 graph.add_edge(5, 6)
 graph.add_edge(5, 7)
 graph.add_edge(6, 7)
 graph.add_edge(7, 4)
 graph.add_edge(8, 4)
 
-graph.remove_edge(1, 2)
+print(graph.edges)
 
-nx.draw(graph, with_labels=True, font_weight='bold')
-plt.show()
+# nx.draw(graph, with_labels=True, font_weight='bold')
+# plt.show()
+
+# a = [1, 2, 3, 4, 5]
+# t = a.index(3)
+# a.pop(t)
+# print(a)

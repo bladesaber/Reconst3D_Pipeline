@@ -1,4 +1,7 @@
 from typing import Union, List
+
+import numpy as np
+
 from reconstruct.system1.cpp.build import dbow_python
 
 class DBOW_Utils(object):
@@ -108,6 +111,11 @@ class DBOW_Utils(object):
         for res in res_list:
             idxs.append(res.Id)
             scores.append(res.Score)
+
+        # shutle_idxs = np.argsort(scores)
+        # idxs = idxs[shutle_idxs]
+        # scores = scores[shutle_idxs]
+
         return idxs, scores
 
     def printVOC(self, voc):

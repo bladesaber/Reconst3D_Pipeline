@@ -746,4 +746,4 @@ class NetworkGraph_utils(object):
 
 if __name__ == '__main__':
     network_coder = NetworkGraph_utils()
-    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test3/refine/network/graph_0_refine.pkl')
+    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test5/iteration_1/original_graph.pkl')
