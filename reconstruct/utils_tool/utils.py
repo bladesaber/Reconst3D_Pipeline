@@ -677,10 +677,12 @@ class TFSearcher(object):
             'count': Tc1c0_info['count']
         }
 
-
 class NetworkGraph_utils(object):
-    def create_graph(self):
-        graph = nx.Graph()
+    def create_graph(self, multi=False):
+        if multi:
+            graph = nx.MultiGraph()
+        else:
+            graph = nx.Graph()
         return graph
 
     def add_node(self, graph: nx.Graph, idx):
@@ -695,7 +697,7 @@ class NetworkGraph_utils(object):
         while running:
             remove_nodeIdxs = []
             for node_idx, degree in graph.degree:
-                if degree < degree_thre:
+                if degree <= degree_thre:
                     remove_nodeIdxs.append(node_idx)
 
             if len(remove_nodeIdxs) > 0:
@@ -727,18 +729,21 @@ class NetworkGraph_utils(object):
         assert path.endswith('.pkl')
         pickle.dump(graph, open(path, 'wb'))
 
-    def load_graph(self, path:str) -> nx.Graph:
+    def load_graph(self, path:str, multi) -> nx.Graph:
         assert path.endswith('.pkl')
         graph = pickle.load(open(path, 'rb'))
-        graph = nx.Graph(graph)
+        if multi:
+            graph = nx.MultiGraph(graph)
+        else:
+            graph = nx.Graph(graph)
         return graph
 
     def plot_graph(self, graph: nx.Graph):
         nx.draw(graph, with_labels=True, font_weight='bold')
         plt.show()
 
-    def plot_graph_from_file(self, graph_file):
-        graph = self.load_graph(graph_file)
+    def plot_graph_from_file(self, graph_file, multi):
+        graph = self.load_graph(graph_file, multi=multi)
         nx.draw(graph, with_labels=True, font_weight='bold')
         plt.show()
 
@@ -747,36 +752,27 @@ class NetworkGraph_utils(object):
         该方法默认预先存在一条单向连接链条
         '''
 
+        longest_matrix = np.zeros((graph.number_of_nodes()-1, ), dtype=np.int64)
+
+        for edge in graph.edges:
+            edgeIdx0, edgeIdx1, _ = edge
+            from_idx = min(edgeIdx0, edgeIdx1)
+            to_idx = max(edgeIdx0, edgeIdx1)
+            if longest_matrix[from_idx] < to_idx:
+                longest_matrix[from_idx] = to_idx
+
         sub_graph_pair = []
-        candidate_idxs_set = [0]
-        max_node_idx = np.max(graph.nodes)
+        connect_idx = 0
 
         while True:
-            best_orig_idx, best_end_idx = -1, -1
+            connect_graph = longest_matrix[0: connect_idx + 1]
+            start_idx = np.argmax(connect_graph)
+            end_idx = longest_matrix[start_idx]
 
-            for edge in graph.edges:
-                edge_idx0, edge_idx1 = edge
+            sub_graph_pair.append([start_idx, end_idx])
+            connect_idx = end_idx
 
-                if edge_idx0 not in candidate_idxs_set:
-                    continue
-
-                if edge_idx1>best_end_idx:
-                    best_orig_idx = edge_idx0
-                    best_end_idx = edge_idx1
-
-            if best_end_idx == -1:
-                break
-
-            if best_end_idx in candidate_idxs_set:
-                current_max_reach_idx = np.max(candidate_idxs_set)
-                candidate_idxs_set = [current_max_reach_idx+1]
-                continue
-
-            sub_graph_pair.append([best_orig_idx, best_end_idx])
-            candidate_idxs_set.extend(list(range(best_orig_idx, best_end_idx+1, 1)))
-            candidate_idxs_set = list(set(candidate_idxs_set))
-
-            if max_node_idx in candidate_idxs_set:
+            if end_idx == graph.number_of_nodes() - 1:
                 break
 
         sub_graphes = []
@@ -791,9 +787,58 @@ class NetworkGraph_utils(object):
 
         return sub_graphes
 
+    def find_largest_subset(self, graph: nx.Graph):
+        node_connect_idxs = {}
+        for edge in graph.edges:
+            edgeIdx0, edgeIdx1, _ = edge
+
+            if edgeIdx0 not in node_connect_idxs.keys():
+                node_connect_idxs[edgeIdx0] = []
+            if edgeIdx1 not in node_connect_idxs.keys():
+                node_connect_idxs[edgeIdx1] = []
+
+            node_connect_idxs[edgeIdx0].append(edgeIdx1)
+            node_connect_idxs[edgeIdx1].append(edgeIdx0)
+
+        all_idxs = list(node_connect_idxs.keys())
+        reset_set = list(node_connect_idxs.keys())
+
+        include_set = []
+
+        sub_graph_idxs = []
+        for _ in range(8):
+            best_include_num = -1
+            best_idx = -1
+
+            for nodeIdx in reset_set:
+                new_include_set = np.setdiff1d(node_connect_idxs[nodeIdx]+[nodeIdx], include_set)
+
+                new_include_num = len(new_include_set)
+                if new_include_num > best_include_num:
+                    best_idx = nodeIdx
+                    best_include_num = new_include_num
+
+            sub_graph_idxs.append(best_idx)
+            include_set = np.union1d(node_connect_idxs[best_idx]+[best_idx], include_set)
+            reset_set = np.setdiff1d(all_idxs, include_set)
+
+            if len(reset_set) == 0:
+                break
+
+        sub_graphs = []
+        for best_idx in sub_graph_idxs:
+            sub_graph: nx.Graph = graph.subgraph(node_connect_idxs[best_idx] + [best_idx])
+
+            if sub_graph.number_of_edges() < 3:
+                continue
+
+            sub_graphs.append(sub_graph)
+
+        return sub_graphs
+
 # class Optimizer_BundleAdjustment(object):
 #     def
 
 if __name__ == '__main__':
     network_coder = NetworkGraph_utils()
-    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test5/iteration_1/original_graph.pkl')
+    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test5/iteration_2/graph/8.pkl', multi=True)

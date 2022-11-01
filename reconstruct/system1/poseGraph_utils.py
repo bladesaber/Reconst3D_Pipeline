@@ -1,5 +1,8 @@
 import open3d as o3d
 import numpy as np
+import networkx as nx
+from typing import Dict
+
 
 class PoseGraph_System(object):
     def __init__(self):
@@ -35,3 +38,39 @@ class PoseGraph_System(object):
     def save_graph(self, path: str):
         assert path.endswith('.json')
         o3d.io.write_pose_graph(path, self.pose_graph)
+
+    def plot_poseGraph(self, network: nx.Graph, Tcws_dict: Dict, color, draw_loop=True):
+
+        leafs = []
+        nodeIdx_to_leaf = {}
+        for leaf_Idx, nodeIdx in enumerate(network.nodes):
+            Tcw = Tcws_dict[nodeIdx]
+            t = Tcw[:3, 3]
+
+            leafs.append(t)
+            nodeIdx_to_leaf[nodeIdx] = leaf_Idx
+
+        links, colors = [], []
+        for edge in network.edges:
+            nodeIdx_i, nodeIdx_j, weight = edge
+            if not draw_loop and weight == 'loop':
+                continue
+
+            leaf_i, leaf_j = nodeIdx_to_leaf[nodeIdx_i], nodeIdx_to_leaf[nodeIdx_j]
+            links.append([leaf_i, leaf_j])
+
+            if weight == 'direct':
+                colors.append(color)
+            elif weight == 'loop':
+                colors.append(np.array([0.0, 0.0, 1.0]))
+
+        leafs = np.array(leafs)
+        links = np.array(links).astype(np.int64)
+        colors = np.array(colors)
+
+        graph_o3d = o3d.geometry.LineSet()
+        graph_o3d.points = o3d.utility.Vector3dVector(leafs)
+        graph_o3d.lines = o3d.utility.Vector2iVector(links)
+        graph_o3d.colors = o3d.utility.Vector3dVector(colors)
+
+        return graph_o3d

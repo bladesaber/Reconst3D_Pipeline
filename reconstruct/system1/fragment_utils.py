@@ -4,7 +4,7 @@ import cv2
 import os
 import pickle
 from tqdm import tqdm
-from typing import Dict
+from typing import Dict, List
 from copy import deepcopy
 
 from reconstruct.system1.dbow_utils import DBOW_Utils
@@ -65,6 +65,7 @@ class Fragment(object):
 
         model = tsdf_model.extract_point_cloud()
         o3d.io.write_point_cloud(path, model)
+        return model
 
     def extract_refine_Pcs(self, extractor: ORBExtractor, config):
         ### todo unfinish
@@ -293,10 +294,14 @@ def load_fragment(path: str) -> Fragment:
         fragment = pickle.load(f)
     return fragment
 
-def debug():
+def merge_fragment(fragments: List[Fragment], idx):
+    t_start_step = min(fragment.t_start_step for fragment in fragments)
+    fragment_merge = Fragment(idx, t_start_step)
+
+    for fragment in fragments:
+        for info_key in fragment.info.keys():
+            info = fragment.info[info_key]
+            T_c_frag = info
 
 
-    pass
 
-if __name__ == '__main__':
-    debug()
