@@ -2,7 +2,7 @@ from typing import Union, List
 
 import numpy as np
 
-from reconstruct.system1.cpp.build import dbow_python
+from reconstruct.system.cpp.build import dbow_python
 
 class DBOW_Utils(object):
     TF_IDF = dbow_python.Voc_WeightingType.TF_IDF

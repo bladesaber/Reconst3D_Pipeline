@@ -1,14 +1,13 @@
 import numpy as np
 import open3d as o3d
 import cv2
-import os
 import pickle
 from tqdm import tqdm
-from typing import Dict, List
+from typing import List
 from copy import deepcopy
 
-from reconstruct.system1.dbow_utils import DBOW_Utils
-from reconstruct.utils_tool.visual_extractor import ORBExtractor_BalanceIter, ORBExtractor
+from reconstruct.system.cpp.dbow_utils import DBOW_Utils
+from reconstruct.utils_tool.visual_extractor import ORBExtractor
 from reconstruct.utils_tool.utils import TF_utils, PCD_utils
 
 class Fragment(object):
@@ -20,6 +19,7 @@ class Fragment(object):
 
         self.Pcs_o3d_file: str = None
         self.Pcs_o3d: o3d.geometry.PointCloud = None
+        self.Pcs_fpfh: o3d.pipelines.registration.Feature = None
 
     def set_Tcw(self, Tcw):
         self.Tcw = Tcw
@@ -94,7 +94,7 @@ class Fragment(object):
         cv2.imshow('debug', show_img)
         cv2.waitKey(0)
 
-    def extract_features(self, voc, dbow_coder: DBOW_Utils, extractor: ORBExtractor, config):
+    def extract_features_dbow(self, voc, dbow_coder: DBOW_Utils, extractor: ORBExtractor, config):
         self.db = dbow_coder.create_db()
         dbow_coder.set_Voc2DB(voc, self.db)
 
@@ -131,6 +131,12 @@ class Fragment(object):
                 'db_idx': db_idx,
                 'vector': vector
             }
+
+    def extract_features_fpfh(self, tf_coder:TF_utils, kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn):
+        Pcs_fpfh = tf_coder.compute_fpfh_feature(
+            self.Pcs_o3d, kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn
+        )
+        self.Pcs_fpfh = Pcs_fpfh
 
     def load_Pcs(self):
         self.Pcs_o3d = o3d.io.read_point_cloud(self.Pcs_o3d_file)
@@ -284,6 +290,8 @@ def save_fragment(path: str, fragment: Fragment):
     fragment.db = None
     fragment.dbIdx_to_tStep = None
     fragment.tStep_to_db = None
+    fragment.Pcs_fpfh = None
+    fragment.Pcs_o3d = None
 
     with open(path, 'wb') as f:
         pickle.dump(fragment, f)

@@ -550,15 +550,15 @@ class TF_utils(object):
             raise ValueError
 
         if (res.transformation.trace() == 4.0):
-            return False, None, None
+            return False, (None, None)
 
         information = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
             Pcs0, Pcs1, distance_threshold, res.transformation
         )
         if information[5, 5] / min(len(Pcs0.points), len(Pcs1.points)) < 0.3:
-            return False, None, None
+            return False, (None, None)
 
-        return True, res, information
+        return True, (res.transformation, information)
 
 class TFSearcher(object):
     class TFNode(object):

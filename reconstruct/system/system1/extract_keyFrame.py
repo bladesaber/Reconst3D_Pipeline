@@ -1,8 +1,6 @@
 import open3d as o3d
 import numpy as np
 import cv2
-from typing import List
-import pickle
 import time
 import os
 from copy import deepcopy
@@ -12,39 +10,19 @@ from reconstruct.camera.fake_camera import KinectCamera
 
 from reconstruct.utils_tool.utils import TF_utils
 from reconstruct.utils_tool.utils import PCD_utils
-
-class Frame(object):
-    def __init__(self, idx, t_step):
-        self.idx = idx
-        self.info = {}
-        self.t_start_step = t_step
-        self.Pws_o3d_file: str = None
-
-    def set_Tcw(self, Tcw):
-        self.Tcw = Tcw
-        self.Rcw = self.Tcw[:3, :3]
-        self.tcw = self.Tcw[:3, 3]  # pc = Rcw * pw + tcw
-        self.Rwc = self.Rcw.T
-        self.Ow = -(self.Rwc @ self.tcw)
-        self.Twc = np.linalg.inv(self.Tcw)
-
-    def add_info(self, info, t_step):
-        self.info[t_step] = info
-
-    def __str__(self):
-        return 'Frame_%s' % self.idx
+from reconstruct.system.system1.fragment_utils import Fragment, save_fragment
 
 class FrameHouse(object):
     def __init__(self):
-        self.frames_dict = {}
+        self.fragments_dict = {}
 
     def create_Frame(self, t_step):
-        frame = Frame(len(self.frames_dict), t_step)
-        return frame
+        fragment = Fragment(len(self.fragments_dict), t_step)
+        return fragment
 
-    def add_frame(self, frame: Frame):
-        assert frame.idx not in self.frames_dict.keys()
-        self.frames_dict[frame.idx] = frame
+    def add_frame(self, fragment: Fragment):
+        assert fragment.idx not in self.fragments_dict.keys()
+        self.fragments_dict[fragment.idx] = fragment
 
 class System_Extract_KeyFrame(object):
     def __init__(self, K, config):
@@ -57,7 +35,7 @@ class System_Extract_KeyFrame(object):
         self.frameHouse = FrameHouse()
         self.pcd_coder = PCD_utils()
 
-        self.current_frame: Frame = None
+        self.current_frame: Fragment = None
         self.has_init_step = False
         self.t_step = 0
 
@@ -184,23 +162,6 @@ class System_Extract_KeyFrame(object):
         cost_time = time.time() - self.start_time
         print('[DEBUG] %s TIme Cost: %f'%(info, cost_time))
 
-    @staticmethod
-    def save_frame(frame:Frame, frame_path: str, Pws_o3d:o3d.geometry.PointCloud, pcd_path:str):
-        assert frame_path.endswith('.pkl')
-        assert pcd_path.endswith('.ply')
-
-        frame.Pws_o3d_file = pcd_path
-        with open(frame_path, 'wb') as f:
-            pickle.dump(frame, f)
-        o3d.io.write_point_cloud(pcd_path, Pws_o3d)
-
-    @staticmethod
-    def load_frame(file: str):
-        assert file.endswith('.pkl')
-        with open(file, 'rb') as f:
-            frame: Frame = pickle.load(f)
-        return frame
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--intrinsics_path', type=str,
@@ -307,9 +268,7 @@ def main():
                     if infos['is_add_frame']:
                         frame = recon_sys.current_frame
                         frame_path = os.path.join(args.save_frame_dir, '%d.pkl' % frame.idx)
-                        Pws_o3d: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
-                        pcd_path = os.path.join(args.save_pcd_dir, '%d.ply' % frame.idx)
-                        recon_sys.save_frame(frame, frame_path, Pws_o3d, pcd_path)
+                        save_fragment(frame_path, frame)
                         recon_sys.has_init_step = False
 
                 depth_color = ((depth_img - depth_img.min())/(depth_img.max() - depth_img.min()) * 255.).astype(np.uint8)
@@ -323,9 +282,7 @@ def main():
         def save_frame(self, vis: o3d.visualization.VisualizerWithKeyCallback):
             frame = recon_sys.current_frame
             frame_path = os.path.join(args.save_frame_dir, '%d.pkl' % frame.idx)
-            Pws_o3d: o3d.geometry.PointCloud = recon_sys.tsdf_model.extract_point_cloud()
-            pcd_path = os.path.join(args.save_pcd_dir, '%d.ply' % frame.idx)
-            recon_sys.save_frame(frame, frame_path, Pws_o3d, pcd_path)
+            save_fragment(frame_path, frame)
 
         def reset_frame(self):
             recon_sys.has_init_step = False

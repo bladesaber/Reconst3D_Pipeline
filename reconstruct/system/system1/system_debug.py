@@ -1,19 +1,18 @@
 import numpy as np
 import cv2
-from typing import List, Dict
+from typing import Dict
 import os
 import open3d as o3d
-import json
 from tqdm import tqdm
 from copy import deepcopy, copy
 
 from reconstruct.camera.fake_camera import KinectCamera
 from reconstruct.utils_tool.utils import TF_utils, PCD_utils, NetworkGraph_utils
-from reconstruct.system1.dbow_utils import DBOW_Utils
-from reconstruct.utils_tool.visual_extractor import ORBExtractor, ORBExtractor_BalanceIter
+from reconstruct.system.cpp.dbow_utils import DBOW_Utils
+from reconstruct.utils_tool.visual_extractor import ORBExtractor_BalanceIter
 from reconstruct.utils_tool.visual_extractor import SIFTExtractor
-from reconstruct.system1.poseGraph_utils import PoseGraph_System
-from reconstruct.system1.fragment_utils import load_fragment, save_fragment, Fragment
+from reconstruct.system.system1.poseGraph_utils import PoseGraph_System
+from reconstruct.system.system1.fragment_utils import load_fragment, save_fragment, Fragment
 
 
 class MergeSystem(object):
@@ -72,7 +71,7 @@ class MergeSystem(object):
             fragment: Fragment = load_fragment(fragment_path)
             fragment.load_Pcs()
 
-            fragment.extract_features(
+            fragment.extract_features_dbow(
                 voc=self.voc, dbow_coder=self.dbow_coder,
                 extractor=self.extractor, config=self.config,
             )
@@ -286,7 +285,7 @@ class MergeSystem(object):
         # ### -----------------------
 
         ### filter network
-        whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
+        # whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
 
         ### ------ extract info in network ------
         self.networkx_coder.save_graph(whole_network, os.path.join(iteration_dir, 'orignal_network.pkl'))
@@ -298,7 +297,7 @@ class MergeSystem(object):
             }
         )
 
-        # self.networkx_coder.plot_graph(whole_network)
+        self.networkx_coder.plot_graph(whole_network)
 
     ### ----------------------------------------
     def extract_sub_fragment(
@@ -422,6 +421,55 @@ class MergeSystem(object):
 
         return poseGraph_system.pose_graph, fragmentIdx_to_nodeIdx
 
+    ### ----------------------------------------
+    def extract_fragment_match_pair_fpfh(self, fragment_dir, iteration_dir):
+        fragment_files = os.listdir(fragment_dir)
+        fragments_dict = {}
+
+        for file in fragment_files:
+            fragment_path = os.path.join(fragment_dir, file)
+            fragment: Fragment = load_fragment(fragment_path)
+            fragment.load_Pcs()
+
+            fragment.Pcs_o3d = fragment.Pcs_o3d.voxel_down_sample(self.config['voxel_size'])
+
+            fragment.extract_features_fpfh(
+                self.tf_coder, kdtree_radius=self.config['voxel_size'] * 2.0, kdtree_max_nn=30,
+                fpfh_radius=self.config['voxel_size'] * 5.0, fpfh_max_nn=100
+            )
+
+            fragments_dict[fragment.idx] = fragment
+
+        fragment_sequence = sorted(list(fragments_dict.keys()))
+        num_fragments = len(fragment_sequence)
+        for i in range(num_fragments):
+            fragment_i_idx = fragment_sequence[i]
+            fragment_i = fragments_dict[fragment_i_idx]
+
+            for j in range(i+1, num_fragments, 1):
+                fragment_j_idx = fragment_sequence[j]
+                fragment_j = fragments_dict[fragment_j_idx]
+
+                status, res = self.tf_coder.compute_Tc1c0_FPFH(
+                    fragment_i.Pcs_o3d, fragment_j.Pcs_o3d,
+                    fragment_j.Pcs_fpfh, fragment_j.Pcs_fpfh,
+                    distance_threshold=self.config['voxel_size'] * 2.0,
+                    method='ransac'
+                )
+                if status:
+                    T_cj_ci, icp_info = res
+
+                    print('[DEBUG]: Point Cloud ICP Debug')
+                    print('[DEBUG]: %s <-> %s'% (fragment_i, fragment_j))
+                    show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
+                    show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
+                    # show_Pcs_i = show_Pcs_i.transform(T_cj_ci)
+                    show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
+                    show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
+                    o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j], width=960, height=720)
+
+
+
 def main():
     config = {
         'max_depth_thre': 7.0,
@@ -454,13 +502,35 @@ def main():
 
     # recon_sys.extract_connective_network(config['fragment_dir'], config['iteration_dir'])
 
-    recon_sys.extract_sub_fragment(
-        config['fragment_dir'], config['iteration_dir'],
-        merge_fragment_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/fragment',
-        merge_pcd_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/pcd',
-        graph_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/graph'
-    )
+    # recon_sys.extract_sub_fragment(
+    #     config['fragment_dir'], config['iteration_dir'],
+    #     merge_fragment_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/fragment',
+    #     merge_pcd_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/pcd',
+    #     graph_dir='/home/quan/Desktop/tempary/redwood/test5/iteration_3/graph'
+    # )
 
+
+def run_next_time():
+    config = {
+        'max_depth_thre': 7.0,
+        'min_depth_thre': 0.1,
+        'scalingFactor': 1000.0,
+        'voxel_size': 0.03,
+        'visual_ransac_max_distance': 0.05,
+        'visual_ransac_inlier_thre': 0.7,
+        'tsdf_size': 0.02,
+
+        'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test5/intrinsic.json',
+        'vocabulary_path': '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz',
+        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_3/fragment',
+        'iteration_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_3',
+        'result_ply': '/home/quan/Desktop/tempary/redwood/test5/iteration_3/result.ply',
+        'sub_graphes_dir': '/home/quan/Desktop/tempary/redwood/test5/iteration_3/sub_graphes',
+    }
+    recon_sys = MergeSystem(config)
+
+    recon_sys.extract_fragment_match_pair_fpfh(config['fragment_dir'], config['iteration_dir'])
 
 if __name__ == '__main__':
-    main()
+    # main()
+    run_next_time()
