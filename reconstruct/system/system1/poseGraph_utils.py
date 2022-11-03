@@ -39,6 +39,10 @@ class PoseGraph_System(object):
         assert path.endswith('.json')
         o3d.io.write_pose_graph(path, self.pose_graph)
 
+    def load_graph(self, path:str):
+        assert path.endswith('.json')
+        self.pose_graph = o3d.io.read_pose_graph(path)
+
     def plot_poseGraph(self, network: nx.Graph, Tcws_dict: Dict, color, draw_loop=True):
 
         leafs = []

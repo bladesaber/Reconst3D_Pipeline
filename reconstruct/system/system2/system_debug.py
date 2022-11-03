@@ -1,12 +1,13 @@
 import cv2
 import numpy as np
 import pickle
-import os
+import os, shutil
 from tqdm import tqdm
 from copy import deepcopy
 import open3d as o3d
 from typing import Dict, List
 import networkx as nx
+import json
 
 from reconstruct.camera.fake_camera import KinectCamera
 from reconstruct.utils_tool.visual_extractor import ORBExtractor_BalanceIter, SIFTExtractor
@@ -43,16 +44,17 @@ class MergeSystem(object):
         )
         self.refine_extractor = SIFTExtractor(nfeatures=500)
 
-    def extract_match_pair(self, frameStore_path):
+    def extract_match_pair(self):
         self.voc = self.dbow_coder.load_voc(self.config['vocabulary_path'], log=True)
         self.db = self.dbow_coder.create_db()
         self.dbow_coder.set_Voc2DB(self.voc, self.db)
 
+        frameStore_path = os.path.join(self.config['workspace'], 'frameStore.pkl')
         with open(frameStore_path, 'rb') as f:
             frameStore = pickle.load(f)
 
         frames_info, db_info = {}, {}
-        for info in tqdm(frameStore[:10]):
+        for info in tqdm(frameStore):
             rgb_img, depth_img = self.load_rgb_depth(
                 info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
             )
@@ -132,7 +134,9 @@ class MergeSystem(object):
         )
 
     def extract_network(self):
-        frame_info: Dict = np.load(os.path.join(self.config['workspace'], 'frames_info.npy'), allow_pickle=True).item()
+        frame_info = np.load(
+            os.path.join(self.config['workspace'], 'frames_info.npy'), allow_pickle=True
+        ).item()
         match_pairs = np.load(os.path.join(self.config['workspace'], 'match_pairs.npy'), allow_pickle=True)
 
         whole_network = self.networkx_coder.create_graph(multi=True)
@@ -151,6 +155,7 @@ class MergeSystem(object):
             edge_infos[edgeIdx].append((idx_i, idx_j, T_cj_ci, icp_info))
 
         whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
+        # self.networkx_coder.plot_graph(whole_network)
 
         sub_graphes: List[nx.Graph] = self.networkx_coder.get_SubConnectGraph(whole_network)
 
@@ -161,21 +166,20 @@ class MergeSystem(object):
             if graph.number_of_nodes() < 5:
                 continue
 
-            # self.networkx_coder.plot_graph(graph)
-            # self.optimize_network(graph, frame_info, edge_infos)
+            graph_dir = os.path.join(self.config['graph_dir'], 'graph_%d'%graphIdx)
+            if os.path.exists(graph_dir):
+                shutil.rmtree(graph_dir)
+            os.mkdir(graph_dir)
 
-            self.networkx_coder.save_graph(
-                graph,
-                os.path.join('/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir', '%d.pkl'%graphIdx)
-            )
+            self.networkx_coder.save_graph(graph, os.path.join(graph_dir, 'network.pkl'))
 
-        np.save(
-            os.path.join('/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir', 'edge_info.pkl'), edge_infos
-        )
+            self.networkx_coder.plot_graph(graph)
 
-    def optimize_network(self, network: nx.Graph, frame_info, edge_infos):
-        poseGraph_system = PoseGraph_System()
-        nodes = np.array([None] * network.number_of_nodes())
+        np.save(os.path.join(self.config['workspace'], 'edge_info'), edge_infos)
+
+    def extract_poseGraph_network(self, graph_dir, edge_infos_file):
+        edge_infos = np.load(edge_infos_file, allow_pickle=True).item()
+        network = self.networkx_coder.load_graph(os.path.join(graph_dir, 'network.pkl'), multi=True)
 
         tf_searcher = TFSearcher()
         for edge in network.edges:
@@ -184,14 +188,13 @@ class MergeSystem(object):
             pairs = edge_infos[edgeIdx]
             for pair in pairs:
                 idx_i, idx_j, T_cj_ci, icp_info = pair
-
                 tf_searcher.add_TFTree_Edge(idx_i, [idx_j])
                 tf_searcher.add_Tc1c0Tree_Edge(idx_i, idx_j, T_cj_ci)
                 tf_searcher.add_TFTree_Edge(idx_j, [idx_i])
                 tf_searcher.add_Tc1c0Tree_Edge(idx_j, idx_i, np.linalg.inv(T_cj_ci))
 
-        leaf_to_nodeIdx = {}
-        source_leafIdx = None
+        nodes = np.array([None] * network.number_of_nodes())
+        leaf_to_nodeIdx, source_leafIdx = {}, None
         for nodeIdx, leafIdx in enumerate(network.nodes):
             leaf_to_nodeIdx[leafIdx] = nodeIdx
             if nodeIdx == 0:
@@ -201,10 +204,11 @@ class MergeSystem(object):
             else:
                 status, T_cLeaf_cSource = tf_searcher.search_Tc1c0(source_leafIdx, leafIdx)
                 assert status
-                graphNode = o3d.pipelines.registration.PoseGraphNode(T_cLeaf_cSource)
+                graphNode = o3d.pipelines.registration.PoseGraphNode(np.linalg.inv(T_cLeaf_cSource))
 
             nodes[nodeIdx] = graphNode
 
+        poseGraph_system = PoseGraph_System()
         for edge in network.edges:
             edgeIdx0, edgeIdx1, tag = edge
             edgeIdx = '%d-%d' % (min(edgeIdx0, edgeIdx1), max(edgeIdx0, edgeIdx1))
@@ -220,70 +224,80 @@ class MergeSystem(object):
                 )
 
         poseGraph_system.pose_graph.nodes.extend(list(nodes))
-        # poseGraph_system.optimize_poseGraph(
-        #     max_correspondence_distance=0.05,
-        #     edge_prune_threshold=0.25,
-        #     preference_loop_closure=5.0,
-        #     reference_node=0
-        # )
+        poseGraph_system.save_graph(os.path.join(graph_dir, 'original_poseGraph.json'))
 
-        vis_list = []
-        for leafIdx in tqdm(network.nodes):
-            nodeIdx = leaf_to_nodeIdx[leafIdx]
-            Twc = poseGraph_system.pose_graph.nodes[nodeIdx].pose
-
-            info = frame_info[leafIdx]
-            rgb_img, depth_img = self.load_rgb_depth(
-                info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
-            )
-            Pcs, Pcs_rgb = self.pcd_coder.rgbd2pcd(
-                rgb_img, depth_img, self.config['min_depth_thre'], self.config['max_depth_thre'],
-                K=self.K
-            )
-            Pcs_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs, Pcs_rgb)
-            Pcs_o3d = Pcs_o3d.voxel_down_sample(0.03)
-            Pcs_o3d = Pcs_o3d.transform(Twc)
-            vis_list.append(Pcs_o3d)
-        o3d.visualization.draw_geometries(vis_list)
-
-        # ### ------ debug Vis
-        # K_o3d = o3d.camera.PinholeCameraIntrinsic(
-        #     width=self.width, height=self.height,
-        #     fx=self.K[0, 0], fy=self.K[1, 1], cx=self.K[0, 2], cy=self.K[1, 2]
-        # )
-        # tsdf_model = o3d.pipelines.integration.ScalableTSDFVolume(
-        #     voxel_length = self.config['tsdf_size'],
-        #     sdf_trunc = 3 * self.config['tsdf_size'],
-        #     color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
-        # )
-        # for leafIdx in network.nodes:
-        #     nodeIdx = leaf_to_nodeIdx[leafIdx]
-        #     Twc = poseGraph_system.pose_graph.nodes[nodeIdx].pose
-        #
-        #     info = frame_info[leafIdx]
-        #     rgb_img, depth_img = self.load_rgb_depth(
-        #         info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
-        #     )
-        #     rgbd_o3d = self.pcd_coder.rgbd2rgbd_o3d(rgb_img, depth_img, depth_trunc=self.config['max_depth_thre'])
-        #     tsdf_model.integrate(rgbd_o3d, K_o3d, np.linalg.inv(Twc))
-        #
-        # model = tsdf_model.extract_point_cloud()
-        # o3d.visualization.draw_geometries([model])
-
-    def debug_test(self):
-        frame_info: Dict = np.load(os.path.join(self.config['workspace'], 'frames_info.npy'), allow_pickle=True).item()
-        graph = self.networkx_coder.load_graph(
-            '/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir/0.pkl', multi=True
+        poseGraph_system.optimize_poseGraph(
+            max_correspondence_distance=0.05,
+            edge_prune_threshold=0.25,
+            preference_loop_closure=5.0,
+            reference_node=0
         )
-        edge_infos: Dict = np.load(
-            '/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir/edge_info.pkl.npy',
-            allow_pickle=True
-        ).item()
+        poseGraph_system.save_graph(os.path.join(graph_dir, 'refine_poseGraph.json'))
 
-        # graph = self.networkx_coder.remove_node_from_degree(graph, degree_thre=2, recursion=True)
+        json.dump(leaf_to_nodeIdx, open(os.path.join(graph_dir, 'leaf_to_nodeIdx.json'), 'w'))
 
-        # self.networkx_coder.plot_graph(graph)
-        self.optimize_network(graph, frame_info, edge_infos)
+    def visulize_network(
+            self,
+            graph_dir, frame_info_file, poseGraph_file,
+            use_tsdf=False, save_pcd=False, vis_pcd=True
+    ):
+        leaf_to_nodeIdx = json.load(open(os.path.join(graph_dir, 'leaf_to_nodeIdx.json'), 'r'))
+
+        poseGraph_system = PoseGraph_System()
+        poseGraph_system.load_graph(poseGraph_file)
+
+        network = self.networkx_coder.load_graph(
+            os.path.join(graph_dir, 'network.pkl'), multi=True
+        )
+        frame_info = np.load(frame_info_file, allow_pickle=True).item()
+
+        if use_tsdf:
+            K_o3d = o3d.camera.PinholeCameraIntrinsic(
+                width=self.width, height=self.height,
+                fx=self.K[0, 0], fy=self.K[1, 1], cx=self.K[0, 2], cy=self.K[1, 2]
+            )
+            tsdf_model = o3d.pipelines.integration.ScalableTSDFVolume(
+                voxel_length = self.config['tsdf_size'],
+                sdf_trunc = self.config['sdf_trunc'],
+                color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8
+            )
+
+            for leafIdx in tqdm(network.nodes):
+                nodeIdx = leaf_to_nodeIdx[str(leafIdx)]
+                Twc = poseGraph_system.pose_graph.nodes[nodeIdx].pose
+
+                info = frame_info[leafIdx]
+                rgb_img, depth_img = self.load_rgb_depth(
+                    info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
+                )
+                rgbd_o3d = self.pcd_coder.rgbd2rgbd_o3d(rgb_img, depth_img, depth_trunc=self.config['max_depth_thre'])
+                tsdf_model.integrate(rgbd_o3d, K_o3d, np.linalg.inv(Twc))
+
+            model = tsdf_model.extract_point_cloud()
+            vis_obj = [model]
+            if save_pcd:
+                o3d.io.write_point_cloud(os.path.join(graph_dir, 'result.ply'), model)
+
+        else:
+            vis_obj = []
+            for leafIdx in tqdm(network.nodes):
+                nodeIdx = leaf_to_nodeIdx[str(leafIdx)]
+                Twc = poseGraph_system.pose_graph.nodes[nodeIdx].pose
+
+                info = frame_info[leafIdx]
+                rgb_img, depth_img = self.load_rgb_depth(
+                    info['rgb_file'], info['depth_file'], scalingFactor=self.config['scalingFactor']
+                )
+                Pcs, Pcs_rgb = self.pcd_coder.rgbd2pcd(
+                    rgb_img, depth_img, self.config['min_depth_thre'], self.config['max_depth_thre'], K=self.K
+                )
+                Pcs_o3d = self.pcd_coder.pcd2pcd_o3d(Pcs, Pcs_rgb)
+                Pcs_o3d = Pcs_o3d.voxel_down_sample(0.02)
+                Pcs_o3d = Pcs_o3d.transform(Twc)
+                vis_obj.append(Pcs_o3d)
+
+        if vis_pcd:
+            o3d.visualization.draw_geometries(vis_obj)
 
     def refine_match(self, info_i, info_j):
         rgb_i, depth_i = self.load_rgb_depth(info_i['rgb_file'], info_i['depth_file'])
@@ -409,6 +423,7 @@ class MergeSystem(object):
 
         if rgb_path is not None:
             rgb = cv2.imread(rgb_path)
+            rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
 
         if depth_path is not None:
             depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
@@ -428,22 +443,34 @@ def main():
         'voxel_size': 0.015,
         'visual_ransac_max_distance': 0.05,
         'visual_ransac_inlier_thre': 0.8,
-        'tsdf_size': 0.02,
+        'tsdf_size': 0.01,
+        'sdf_trunc': 0.1,
 
         'workspace': '/home/quan/Desktop/tempary/redwood/test5/visual_test',
         'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test5/intrinsic.json',
         'vocabulary_path': '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz',
+        'graph_dir': '/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir',
     }
 
     recon_sys = MergeSystem(config)
 
-    recon_sys.extract_match_pair(
-        '/home/quan/Desktop/tempary/redwood/test5/visual_test/frameStore.pkl'
-    )
+    # recon_sys.extract_match_pair()
 
-    recon_sys.extract_network()
+    # recon_sys.extract_network()
 
-    recon_sys.debug_test()
+    # edge_info_file = os.path.join(config['workspace'], 'edge_info.npy')
+    # for graph_dir in os.listdir(config['graph_dir']):
+    #     graph_dir = os.path.join(config['graph_dir'], graph_dir)
+    #     recon_sys.extract_poseGraph_network(graph_dir, edge_info_file)
+
+    # for graph_dir in os.listdir(config['graph_dir']):
+    #     graph_dir = os.path.join(config['graph_dir'], graph_dir)
+    #     recon_sys.visulize_network(
+    #         frame_info_file=os.path.join(config['workspace'], 'frames_info.npy'),
+    #         graph_dir=graph_dir,
+    #         poseGraph_file=os.path.join(graph_dir, 'refine_poseGraph.json'),
+    #         use_tsdf=True, save_pcd=True, vis_pcd=False
+    #     )
 
 if __name__ == '__main__':
     main()
