@@ -166,16 +166,16 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--intrinsics_path', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003/instrincs.json'
-                        default='/home/quan/Desktop/tempary/redwood/test3/intrinsic.json'
+                        default='/home/quan/Desktop/tempary/redwood/test6/intrinsic.json'
                         )
     parser.add_argument('--dataset_dir', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003'
-                        default='/home/quan/Desktop/tempary/redwood/test3'
+                        default='/home/quan/Desktop/tempary/redwood/test6'
                         )
     parser.add_argument('--save_frame_dir', type=str,
-                        default='/home/quan/Desktop/tempary/redwood/test3/frame')
+                        default='/home/quan/Desktop/tempary/redwood/test6/fragment')
     parser.add_argument('--save_pcd_dir', type=str,
-                        default='/home/quan/Desktop/tempary/redwood/test3/pcd')
+                        default='/home/quan/Desktop/tempary/redwood/test6/pcd')
     args = parser.parse_args()
     return args
 
@@ -199,10 +199,10 @@ def main():
         'depth_scale': 1.0,
         'tsdf_size': 0.02,
         'min_depth_thre': 0.05,
-        'max_depth_thre': 7.0,
+        'max_depth_thre': 3.0,
         'fitness_min_thre': 0.45,
         'fitness_thre': 0.5,
-        'voxel_size': 0.02
+        'voxel_size': 0.01
     }
     recon_sys = System_Extract_KeyFrame(dataloader.K, config=config)
 

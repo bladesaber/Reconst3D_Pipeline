@@ -324,7 +324,7 @@ class TF_utils(object):
     def compute_Tc1c0_ICP(
             self,
             Pc0: o3d.geometry.PointCloud, Pc1: o3d.geometry.PointCloud,
-            voxelSizes, maxIters,
+            voxelSizes, maxIters, dist_threshold_scale=1.4,
             icp_method='point_to_plane',
             init_Tc1c0=np.identity(4),
     ):
@@ -337,7 +337,7 @@ class TF_utils(object):
 
             max_iter = maxIters[idx]
             voxel_size = voxelSizes[idx]
-            dist_threshold = voxel_size * 1.4
+            dist_threshold = voxel_size * dist_threshold_scale
 
             Pc0_down = Pc0.voxel_down_sample(voxel_size)
             Pc1_down = Pc1.voxel_down_sample(voxel_size)

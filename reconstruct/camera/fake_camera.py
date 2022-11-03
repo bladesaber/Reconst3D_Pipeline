@@ -129,6 +129,28 @@ class KinectCamera(object):
         else:
             return False, (None, None), (None, None)
 
+    def get_img_from_idx(self, idx, raw_depth=False, with_path=False):
+        img_idx = self.img_idxs[idx]
+        rgb_path = self.img_dict[img_idx]['rgb']
+        depth_path = self.img_dict[img_idx]['depth']
+        rgb_path = os.path.join(self.color_dir, rgb_path)
+        depth_path = os.path.join(self.depth_dir, depth_path)
+        print('[DEBUG]: Loading RGB %s' % rgb_path)
+        print('[DEBUG]: Loading DEPTH %s' % depth_path)
+
+        rgb = cv2.imread(rgb_path)
+        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+        depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        if not raw_depth:
+            depth = depth.astype(np.float32)
+            depth[depth == 0.0] = 65535
+            depth = depth / self.scalingFactor
+
+        if not with_path:
+            return (rgb, depth)
+        else:
+            return (rgb, depth), (rgb_path, depth_path)
+
 if __name__ == '__main__':
     # dataloader = RedWoodCamera(
     #     dir='/home/quan/Desktop/tempary/redwood/00003',
