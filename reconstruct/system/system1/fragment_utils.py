@@ -41,7 +41,7 @@ class Fragment(object):
             info['T_c_frag'] = T_c_frag
             del info['Tcw']
 
-    def extract_Pcs(self, width, height, K, config, pcd_coder:PCD_utils, path:str):
+    def extract_Pcs(self, width, height, K, config, pcd_coder:PCD_utils, path:str, with_mask=False):
         assert path.endswith('.ply')
 
         K_o3d = o3d.camera.PinholeCameraIntrinsic(
@@ -57,9 +57,13 @@ class Fragment(object):
             info = self.info[key]
             T_c_frag = info['T_c_frag']
 
-            rgb_img, depth_img = self.load_rgb_depth(
-                info['rgb_file'], info['depth_file'], scalingFactor=config['scalingFactor']
+            rgb_img, depth_img, mask_img = self.load_rgb_depth_mask(
+                info['rgb_file'], info['depth_file'], mask_path=info['mask_file'],
+                scalingFactor=config['scalingFactor']
             )
+            if with_mask:
+                rgb_img, depth_img, mask_img = self.preprocess_img(rgb_img, depth_img, mask_img=mask_img)
+
             rgbd_o3d = pcd_coder.rgbd2rgbd_o3d(rgb_img, depth_img, depth_trunc=config['max_depth_thre'])
             tsdf_model.integrate(rgbd_o3d, K_o3d, T_c_frag)
 
@@ -75,12 +79,18 @@ class Fragment(object):
         tStep0, tStep1 = frame_sequence[0], frame_sequence[-1]
         info0, info1 = self.info[tStep0], self.info[tStep1]
 
-        rgb0_img, depth0_img = Fragment.load_rgb_depth(info0['rgb_file'], info0['depth_file'])
+        rgb0_img, depth0_img, _ = Fragment.load_rgb_depth_mask(
+            info0['rgb_file'], info0['depth_file'],
+            # info0['mask_file']
+        )
         gray0_img = cv2.cvtColor(rgb0_img, cv2.COLOR_BGR2GRAY)
         mask0_img = Fragment.create_mask(depth0_img, config['max_depth_thre'], config['min_depth_thre'])
         kps0, descs0 = extractor.extract_kp_desc(gray0_img, mask=mask0_img)
 
-        rgb1_img, depth1_img = Fragment.load_rgb_depth(info1['rgb_file'], info1['depth_file'])
+        rgb1_img, depth1_img, _ = Fragment.load_rgb_depth_mask(
+            info1['rgb_file'], info1['depth_file'],
+            # info1['mask_file']
+        )
         gray1_img = cv2.cvtColor(rgb1_img, cv2.COLOR_BGR2GRAY)
         mask1_img = Fragment.create_mask(depth1_img, config['max_depth_thre'], config['min_depth_thre'])
         kps1, descs1 = extractor.extract_kp_desc(gray1_img, mask=mask1_img)
@@ -104,8 +114,9 @@ class Fragment(object):
         for tStep in tqdm(self.info.keys()):
             info = self.info[tStep]
 
-            rgb_img, depth_img = self.load_rgb_depth(
+            rgb_img, depth_img, _ = self.load_rgb_depth_mask(
                 rgb_path=info['rgb_file'], depth_path=info['depth_file'],
+                # mask_path=info['mask_file'],
                 scalingFactor=config['scalingFactor']
             )
             mask_img = self.create_mask(depth_img, config['max_depth_thre'], config['min_depth_thre'])
@@ -147,13 +158,19 @@ class Fragment(object):
             config
     ):
         info_i = self.info[tStep_i]
-        rgb_i, depth_i = Fragment.load_rgb_depth(info_i['rgb_file'], info_i['depth_file'])
+        rgb_i, depth_i, _ = Fragment.load_rgb_depth_mask(
+            info_i['rgb_file'], info_i['depth_file'],
+            # info_i['mask_file']
+        )
         gray_i = cv2.cvtColor(rgb_i, cv2.COLOR_BGR2GRAY)
         mask_i = Fragment.create_mask(depth_i, config['max_depth_thre'], config['min_depth_thre'])
         kps_i, descs_i = refine_extractor.extract_kp_desc(gray_i, mask=mask_i)
 
         info_j = self.info[tStep_j]
-        rgb_j, depth_j = Fragment.load_rgb_depth(info_j['rgb_file'], info_j['depth_file'])
+        rgb_j, depth_j, _ = Fragment.load_rgb_depth_mask(
+            info_j['rgb_file'], info_j['depth_file'],
+            # info_j['mask_file']
+        )
         gray_j = cv2.cvtColor(rgb_j, cv2.COLOR_BGR2GRAY)
         mask_j = Fragment.create_mask(depth_j, config['max_depth_thre'], config['min_depth_thre'])
         kps_j, descs_j = refine_extractor.extract_kp_desc(gray_j, mask=mask_j)
@@ -237,8 +254,8 @@ class Fragment(object):
         return mask_img
 
     @staticmethod
-    def load_rgb_depth(rgb_path=None, depth_path=None, raw_depth=False, scalingFactor=1000.0):
-        rgb, depth = None, None
+    def load_rgb_depth_mask(rgb_path=None, depth_path=None, mask_path=None, raw_depth=False, scalingFactor=1000.0):
+        rgb, depth, mask = None, None, None
 
         if rgb_path is not None:
             rgb = cv2.imread(rgb_path)
@@ -250,7 +267,12 @@ class Fragment(object):
                 depth[depth == 0.0] = 65535
                 depth = depth / scalingFactor
 
-        return rgb, depth
+        if mask_path is not None:
+            mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+            _, mask = cv2.threshold(mask, 200, maxval=255, type=cv2.THRESH_BINARY)
+            mask = mask.astype(np.float32)
+
+        return rgb, depth, mask
 
     @staticmethod
     def draw_kps(img, kps, color=(0, 255, 0), radius=3, thickness=1):
@@ -280,6 +302,12 @@ class Fragment(object):
             cv2.line(img_concat, (x0, y0), (x1, y1), color=(0, 255, 0), thickness=1)
 
         return img_concat
+
+    @staticmethod
+    def preprocess_img(rgb_img, depth_img, mask_img):
+        if mask_img is not None:
+            depth_img[mask_img == 0.0] = 65535
+        return rgb_img, depth_img, mask_img
 
     def __str__(self):
         return 'Fragment_%d' % self.idx

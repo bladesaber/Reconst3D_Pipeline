@@ -35,6 +35,7 @@ class Searcher_Tcw(object):
         self.extractor = ORBExtractor_BalanceIter(
             radius=3, max_iters=10, single_nfeatures=50, nfeatures=500
         )
+
         self.pcd_coder = PCD_utils()
         self.tf_coder = TF_utils()
 
@@ -354,7 +355,7 @@ class MergeSystem(object):
             edge_infos[edgeIdx].append((idx_i, idx_j, T_cj_ci, icp_info))
 
         whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
-        # self.networkx_coder.plot_graph(whole_network)
+        self.networkx_coder.plot_graph(whole_network)
 
         sub_graphes: List[nx.Graph] = self.networkx_coder.get_SubConnectGraph(whole_network)
 
@@ -856,28 +857,28 @@ class MergeSystem(object):
 
 def main():
     config = {
-        'max_depth_thre': 7.0,
+        'max_depth_thre': 3.0,
         'min_depth_thre': 0.1,
         'scalingFactor': 1000.0,
-        'dbow_score_thre': 0.01,
+        'dbow_score_thre': 0.009,
         'voxel_size': 0.02,
         'visual_ransac_max_distance': 0.05,
-        'visual_ransac_inlier_thre': 0.8,
+        'visual_ransac_inlier_thre': 0.75,
         'tsdf_size': 0.01,
-        'sdf_trunc': 0.08,
+        'sdf_trunc': 0.05,
         'fragment_connective_thre':50,
         'connective_skip': 5,
 
-        'workspace': '/home/quan/Desktop/tempary/redwood/test5/visual_test',
-        'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test5/intrinsic.json',
+        'workspace': '/home/quan/Desktop/tempary/redwood/test6_2',
+        'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test6_2/intrinsic.json',
         'vocabulary_path': '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz',
-        'graph_dir': '/home/quan/Desktop/tempary/redwood/test5/visual_test/graph_dir',
-        'dataset_dir': '/home/quan/Desktop/tempary/redwood/test3',
+        'graph_dir': '/home/quan/Desktop/tempary/redwood/test6_2/graph_dir',
+        'dataset_dir': '/home/quan/Desktop/tempary/redwood/test6_2',
     }
 
     recon_sys = MergeSystem(config)
 
-    # recon_sys.extract_match_pair()
+    recon_sys.extract_match_pair()
 
     # recon_sys.extract_network()
 
@@ -910,7 +911,7 @@ def main():
 
     # recon_sys.whole_fragment_poseGraph()
 
-    recon_sys.whole_fragment_intergret()
+    # recon_sys.whole_fragment_intergret()
 
 def searcher_all_Tcw(config, dataloader, recon_sys):
     frames_info = np.load(os.path.join(config['workspace'], 'frames_Tcw_info.npy'), allow_pickle=True).item()

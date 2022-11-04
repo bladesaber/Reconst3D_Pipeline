@@ -64,10 +64,13 @@ class RedWoodCamera(object):
         return False, (None, None)
 
 class KinectCamera(object):
-    def __init__(self, dir, intrinsics_path, scalingFactor, skip):
+    def __init__(self, dir, intrinsics_path, scalingFactor, skip, load_mask=False):
         self.dir = dir
         self.color_dir = os.path.join(dir, 'color')
         self.depth_dir = os.path.join(dir, 'depth')
+        self.mask_dir = os.path.join(dir, 'mask')
+        if load_mask:
+            self.with_mask = True
 
         self.img_dict = {}
         for path in os.listdir(self.color_dir):
@@ -76,6 +79,10 @@ class KinectCamera(object):
         for path in os.listdir(self.depth_dir):
             idx = int(path.split('.')[0])
             self.img_dict[idx]['depth'] = path
+        if self.with_mask:
+            for path in os.listdir(self.mask_dir):
+                idx = int(path.split('.')[0])
+                self.img_dict[idx]['mask'] = path
 
         self.img_idxs = sorted(list(self.img_dict.keys()))
         self.num = len(self.img_idxs)
@@ -109,6 +116,12 @@ class KinectCamera(object):
             print('[DEBUG]: Loading RGB %s' % rgb_path)
             print('[DEBUG]: Loading DEPTH %s' % depth_path)
 
+            mask, mask_path = None, None
+            if self.with_mask:
+                mask_path = self.img_dict[img_idx]['mask']
+                mask_path = os.path.join(self.mask_dir, mask_path)
+                print('[DEBUG]: Loading MASK %s' % mask_path)
+
             rgb = cv2.imread(rgb_path)
             rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
             depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
@@ -117,17 +130,22 @@ class KinectCamera(object):
                 depth[depth == 0.0] = 65535
                 depth = depth / self.scalingFactor
 
+            if self.with_mask:
+                mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+                _, mask = cv2.threshold(mask, 200, maxval=255, type=cv2.THRESH_BINARY)
+                mask = mask.astype(np.float32)
+
             self.pt += self.skip
 
             if not with_path:
-                return True, (rgb, depth)
+                return True, (rgb, depth, mask)
             else:
-                return True, (rgb, depth), (rgb_path, depth_path)
+                return True, (rgb, depth, mask), (rgb_path, depth_path, mask_path)
 
         if not with_path:
-            return False, (None, None)
+            return False, (None, None, None)
         else:
-            return False, (None, None), (None, None)
+            return False, (None, None, None), (None, None, None)
 
     def get_img_from_idx(self, idx, raw_depth=False, with_path=False):
         img_idx = self.img_idxs[idx]
@@ -138,6 +156,12 @@ class KinectCamera(object):
         print('[DEBUG]: Loading RGB %s' % rgb_path)
         print('[DEBUG]: Loading DEPTH %s' % depth_path)
 
+        mask, mask_path = None, None
+        if self.with_mask:
+            mask_path = self.img_dict[img_idx]['mask']
+            mask_path = os.path.join(self.mask_dir, mask_path)
+            print('[DEBUG]: Loading MASK %s' % mask_path)
+
         rgb = cv2.imread(rgb_path)
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
         depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
@@ -146,10 +170,15 @@ class KinectCamera(object):
             depth[depth == 0.0] = 65535
             depth = depth / self.scalingFactor
 
+        if self.with_mask:
+            mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+            _, mask = cv2.threshold(mask, 200, maxval=255, type=cv2.THRESH_BINARY)
+            mask = mask.astype(np.float32)
+
         if not with_path:
-            return (rgb, depth)
+            return (rgb, depth, mask)
         else:
-            return (rgb, depth), (rgb_path, depth_path)
+            return (rgb, depth, mask), (rgb_path, depth_path, mask_path)
 
 if __name__ == '__main__':
     # dataloader = RedWoodCamera(

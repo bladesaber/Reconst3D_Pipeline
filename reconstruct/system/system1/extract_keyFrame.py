@@ -39,17 +39,24 @@ class System_Extract_KeyFrame(object):
         self.has_init_step = False
         self.t_step = 0
 
-    def init_step(self, rgb_img, depth_img, rgb_file, depth_file, t_step, init_Tcw=np.eye(4)):
+    def init_step(
+            self,
+            rgb_img, depth_img, rgb_file, depth_file,
+            t_step, init_Tcw=np.eye(4),
+            mask_img=None, mask_file=None
+    ):
         frame = self.frameHouse.create_Frame(t_step)
         info = {
             'rgb_file': rgb_file,
             'depth_file': depth_file,
+            'mask_file': mask_file,
             'Tcw': init_Tcw,
         }
         frame.add_info(info, t_step)
         frame.set_Tcw(init_Tcw)
         self.current_frame = frame
 
+        rgb_img, depth_img, mask_img = self.preprocess_img(rgb_img, depth_img, mask_img)
         rgbd_o3d = self.pcd_coder.rgbd2rgbd_o3d(
             rgb_img, depth_img, depth_trunc=self.config['max_depth_thre'],
             depth_scale=self.config['depth_scale'],
@@ -74,7 +81,9 @@ class System_Extract_KeyFrame(object):
         }
 
     def step(
-            self, rgb_img, depth_img, rgb_file, depth_file, t_step, init_Tcw
+            self, rgb_img, depth_img, rgb_file, depth_file,
+            t_step, init_Tcw,
+            mask_img=None, mask_file=None
     ):
         Tc1w = init_Tcw
 
@@ -87,6 +96,7 @@ class System_Extract_KeyFrame(object):
         Pcs1_o3d = tsdf_Pcs_o3d
         self.print_timeStamp('TSDF_UV_Computation')
 
+        rgb_img, depth_img, mask_img = self.preprocess_img(rgb_img, depth_img, mask_img)
         Pcs0, rgbs0 = self.pcd_coder.rgbd2pcd(
             rgb_img, depth_img,
             self.config['min_depth_thre'], self.config['max_depth_thre'], self.K
@@ -134,6 +144,7 @@ class System_Extract_KeyFrame(object):
         info = {
             'rgb_file': rgb_file,
             'depth_file': depth_file,
+            'mask_file': mask_file,
             'Tcw': Tc0w,
         }
         self.current_frame.add_info(info, t_step)
@@ -147,6 +158,11 @@ class System_Extract_KeyFrame(object):
             'debug_img': remap_img, 'is_add_frame': is_add_frame,
             'Pcs0': Pcs0_o3d, 'Pcs1': tsdf_Pcs_o3d, 'Tc0w': Tc0w, 'Tc1w': Tc1w
         }
+
+    def preprocess_img(self, rgb_img, depth_img, mask_img):
+        if mask_img is not None:
+            depth_img[mask_img == 0.0] = 65535
+        return rgb_img, depth_img, mask_img
 
     def uv2img(self, uvs, rgbs):
         img_uvs = np.zeros((self.height, self.width, 3), dtype=np.uint8)
@@ -190,14 +206,15 @@ def main():
     dataloader = KinectCamera(
         dir=args.dataset_dir,
         intrinsics_path=args.intrinsics_path,
-        scalingFactor=1000.0, skip=5
+        scalingFactor=1000.0, skip=5,
+        load_mask=True
     )
 
     config = {
         'width': dataloader.width,
         'height': dataloader.height,
         'depth_scale': 1.0,
-        'tsdf_size': 0.02,
+        'tsdf_size': 0.01,
         'min_depth_thre': 0.05,
         'max_depth_thre': 3.0,
         'fitness_min_thre': 0.45,
@@ -227,12 +244,16 @@ def main():
             self.vis.destroy_window()
 
         def step_visulize(self, vis: o3d.visualization.VisualizerWithKeyCallback):
-            status_data, (rgb_img, depth_img), (rgb_file, depth_file) = dataloader.get_img(with_path=True)
+            status_data, (rgb_img, depth_img, mask_img), (rgb_file, depth_file, mask_file) = dataloader.get_img(
+                with_path=True
+            )
 
             if status_data:
                 if not recon_sys.has_init_step:
                     run_status, self.Tcw, infos = recon_sys.init_step(
-                        rgb_img, depth_img, rgb_file, depth_file, self.t_step, init_Tcw=self.Tcw
+                        rgb_img, depth_img, rgb_file, depth_file,
+                        self.t_step, init_Tcw=self.Tcw,
+                        mask_img=mask_img, mask_file=mask_file
                     )
                     if run_status:
                         recon_sys.has_init_step = True
@@ -250,7 +271,9 @@ def main():
 
                 else:
                     run_status, self.Tcw, infos = recon_sys.step(
-                        rgb_img, depth_img, rgb_file, depth_file, self.t_step, init_Tcw=self.Tcw,
+                        rgb_img, depth_img, rgb_file, depth_file,
+                        self.t_step, init_Tcw=self.Tcw,
+                        mask_img=mask_img, mask_file=mask_file
                     )
                     if run_status:
                         if self.running_mode == 'pair_debug':

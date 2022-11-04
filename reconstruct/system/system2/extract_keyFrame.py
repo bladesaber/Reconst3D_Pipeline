@@ -20,7 +20,7 @@ class System_Extract_KeyFrame(object):
         self.frameStore = []
         self.has_init_step = False
 
-    def init_step(self, rgb_img, depth_img, rgb_file, depth_file):
+    def init_step(self, rgb_img, depth_img, rgb_file, depth_file, mask_img=None, mask_file=None):
         gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
         mask_img = self.create_mask(
             depth_img, self.config['max_depth_thre'], self.config['min_depth_thre']
@@ -42,6 +42,7 @@ class System_Extract_KeyFrame(object):
         self.frameStore.append({
             'rgb_file': rgb_file,
             'depth_file': depth_file,
+            'mask_file': mask_file,
         })
         return {
             'need_new_frame': False,
@@ -108,13 +109,13 @@ class System_Extract_KeyFrame(object):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--intrinsics_path', type=str,
-                        default='/home/quan/Desktop/tempary/redwood/test3/intrinsic.json'
+                        default='/home/quan/Desktop/tempary/redwood/test6_2/intrinsic.json'
                         )
     parser.add_argument('--dataset_dir', type=str,
-                        default='/home/quan/Desktop/tempary/redwood/test3'
+                        default='/home/quan/Desktop/tempary/redwood/test6_2'
                         )
     parser.add_argument('--workspace', type=str,
-                        default='/home/quan/Desktop/tempary/redwood/test5/visual_test')
+                        default='/home/quan/Desktop/tempary/redwood/test6_2')
     args = parser.parse_args()
     return args
 
@@ -123,11 +124,11 @@ def main():
     dataloader = KinectCamera(
         dir=args.dataset_dir,
         intrinsics_path=args.intrinsics_path,
-        scalingFactor=1000.0, skip=1
+        scalingFactor=1000.0, skip=1, load_mask=True
     )
 
     config = {
-        'max_depth_thre': 7.0,
+        'max_depth_thre': 3.0,
         'min_depth_thre': 0.1,
         'scalingFactor': 1000.0,
         'match_num_thre': 40,
@@ -137,7 +138,7 @@ def main():
 
     auto_time = 1
     while True:
-        status_data, (rgb_img, depth_img), (rgb_file, depth_file) = dataloader.get_img(with_path=True)
+        status_data, (rgb_img, depth_img, mask_img), (rgb_file, depth_file, mask_file) = dataloader.get_img(with_path=True)
 
         if not status_data:
             break
@@ -153,15 +154,15 @@ def main():
         if info['need_new_frame']:
             recon_sys.has_init_step = False
 
-        # show_img = recon_sys.draw_matches(
-        #     img0=info['rgb_img0'], kps0=info['kps0'],
-        #     img1=info['rgb_img1'], kps1=info['kps1'],
-        #     scale=0.7
-        # )
-        # cv2.imshow('debug', show_img)
-        # key = cv2.waitKey(auto_time)
-        # if key == ord('q'):
-        #     break
+        show_img = recon_sys.draw_matches(
+            img0=info['rgb_img0'], kps0=info['kps0'],
+            img1=info['rgb_img1'], kps1=info['kps1'],
+            scale=0.7
+        )
+        cv2.imshow('debug', show_img)
+        key = cv2.waitKey(auto_time)
+        if key == ord('q'):
+            break
 
     recon_sys.save_frameStore(os.path.join(args.workspace, 'frameStore.pkl'))
 
