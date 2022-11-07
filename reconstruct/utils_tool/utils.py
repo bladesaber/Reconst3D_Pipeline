@@ -8,6 +8,7 @@ import networkx as nx
 from copy import deepcopy
 import pickle
 import matplotlib.pyplot as plt
+import random
 
 # from slam_py_env.vslam.extractor import ORBExtractor_BalanceIter
 
@@ -787,58 +788,17 @@ class NetworkGraph_utils(object):
 
         return sub_graphes
 
-    def find_largest_subset(self, graph: nx.Graph):
-        node_connect_idxs = {}
-        for edge in graph.edges:
-            edgeIdx0, edgeIdx1, _ = edge
+    def find_semi_largest_cliques(self, graph: nx.Graph):
+        # a = nx.community.k_clique_communities(graph, k=3)
+        # a = nx.find_cliques(a)
+        # self.plot_graph(graph)
 
-            if edgeIdx0 not in node_connect_idxs.keys():
-                node_connect_idxs[edgeIdx0] = []
-            if edgeIdx1 not in node_connect_idxs.keys():
-                node_connect_idxs[edgeIdx1] = []
-
-            node_connect_idxs[edgeIdx0].append(edgeIdx1)
-            node_connect_idxs[edgeIdx1].append(edgeIdx0)
-
-        all_idxs = list(node_connect_idxs.keys())
-        reset_set = list(node_connect_idxs.keys())
-
-        include_set = []
-
-        sub_graph_idxs = []
-        for _ in range(8):
-            best_include_num = -1
-            best_idx = -1
-
-            for nodeIdx in reset_set:
-                new_include_set = np.setdiff1d(node_connect_idxs[nodeIdx]+[nodeIdx], include_set)
-
-                new_include_num = len(new_include_set)
-                if new_include_num > best_include_num:
-                    best_idx = nodeIdx
-                    best_include_num = new_include_num
-
-            sub_graph_idxs.append(best_idx)
-            include_set = np.union1d(node_connect_idxs[best_idx]+[best_idx], include_set)
-            reset_set = np.setdiff1d(all_idxs, include_set)
-
-            if len(reset_set) == 0:
-                break
-
-        sub_graphs = []
-        for best_idx in sub_graph_idxs:
-            sub_graph: nx.Graph = graph.subgraph(node_connect_idxs[best_idx] + [best_idx])
-
-            if sub_graph.number_of_edges() < 3:
-                continue
-
-            sub_graphs.append(sub_graph)
-
-        return sub_graphs
-
-# class Optimizer_BundleAdjustment(object):
-#     def
+        raise NotImplementedError
 
 if __name__ == '__main__':
     network_coder = NetworkGraph_utils()
-    network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test5/iteration_2/graph/8.pkl', multi=True)
+    network = network_coder.load_graph(
+        '/home/quan/Desktop/tempary/redwood/test6_1/fragments/fragment_4/network.pkl', multi=True
+    )
+
+    network_coder.find_semi_largest_cliques(network)

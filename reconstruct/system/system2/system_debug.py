@@ -585,7 +585,7 @@ class MergeSystem(object):
             voxelSizes=[0.03, 0.015], maxIters=[100, 50], init_Tc1c0=T_cj_ci
         )
         ### todo is it necessary ??
-        if res.fitness < 0.4:
+        if res.fitness < 0.3:
             return False, None
 
         T_cj_ci = res.transformation
