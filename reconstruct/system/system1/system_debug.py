@@ -105,10 +105,12 @@ class MergeSystem(object):
 
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
-            fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
-            if not os.path.exists(fragment_file):
+
+            graph = self.networkx_coder.load_graph(os.path.join(sub_fragment_dir, 'network.pkl'), multi=True)
+            if graph.number_of_nodes() == 0:
                 continue
 
+            fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
             fragment: Fragment = load_fragment(fragment_file)
             fragment.load_Pcs()
             fragment.load_network(sub_fragment_dir, self.networkx_coder)
@@ -309,10 +311,12 @@ class MergeSystem(object):
         fragments_dict = {}
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
-            fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
-            if not os.path.exists(fragment_file):
+
+            graph = self.networkx_coder.load_graph(os.path.join(sub_fragment_dir, 'network.pkl'), multi=True)
+            if graph.number_of_nodes() == 0:
                 continue
 
+            fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
             fragment: Fragment = load_fragment(fragment_file)
             fragment.load_network(sub_fragment_dir, self.networkx_coder)
 
@@ -339,7 +343,7 @@ class MergeSystem(object):
             })
 
         self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=0, recursion=True)
-        self.networkx_coder.plot_graph(whole_network)
+        # self.networkx_coder.plot_graph(whole_network)
 
         ### ------- add observation estimation
         fragment_sequence = sorted(whole_network.nodes)
@@ -372,13 +376,13 @@ class MergeSystem(object):
         self.networkx_coder.plot_graph(whole_network)
 
         ### filter network
-        # whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
+        whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
 
         ### ------ extract info in network ------
         self.networkx_coder.save_graph(whole_network, os.path.join(self.config['workspace'], 'network.pkl'))
         np.save(os.path.join(self.config['workspace'], 'edges_info'), edges_info)
 
-        # self.networkx_coder.plot_graph(whole_network)
+        self.networkx_coder.plot_graph(whole_network)
 
     ### ----------------------------------------
     def optimize_network(self):
@@ -540,7 +544,7 @@ def main():
 
     # recon_sys.extract_fragment_matchPair_DBOW()
 
-    recon_sys.extract_connective_network()
+    # recon_sys.extract_connective_network()
 
     # recon_sys.optimize_network()
 
