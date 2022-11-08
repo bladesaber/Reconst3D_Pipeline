@@ -16,6 +16,8 @@ from reconstruct.utils_tool.visual_extractor import SIFTExtractor
 from reconstruct.system.system1.poseGraph_utils import PoseGraph_System
 from reconstruct.system.system1.fragment_utils import load_fragment, save_fragment, Fragment
 
+### TODO Add FPFH Feature Pose Graph Edge
+
 class MergeSystem(object):
     def __init__(self, config):
         instrics_dict = KinectCamera.load_instrincs(config['intrinsics_path'])
