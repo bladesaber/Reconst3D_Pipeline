@@ -508,34 +508,61 @@ class TF_utils(object):
 
     ### ----------- FPFH Estimation Method -----------
     def compute_fpfh_feature(
-            self, pcd:o3d.geometry.PointCloud,
+            self, pcd:o3d.geometry.PointCloud, voxel_size=0.05,
+            kdtree_radius=None, kdtree_max_nn=30, fpfh_radius=None, fpfh_max_nn=100
+    ) -> (o3d.geometry.PointCloud, o3d.pipelines.registration.Feature):
+        if kdtree_radius is None:
+            kdtree_radius = voxel_size * 2.0
+        if fpfh_radius is None:
+            fpfh_radius = voxel_size * 5.0
+
+        print('[DEBUG]: kdtree_radius:%f kdtree_max_nn:%d fpfh_radius:%f fpfh_max_nn:%d'%(
             kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn
-    ):
-        pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
+        ))
+
+        pcd_down = pcd.voxel_down_sample(voxel_size)
+
+        pcd_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
             radius=kdtree_radius, max_nn=kdtree_max_nn)
         )
         pcd_fpfh: o3d.pipelines.registration.Feature = o3d.pipelines.registration.compute_fpfh_feature(
-            pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=fpfh_radius, max_nn=fpfh_max_nn)
+            pcd_down, o3d.geometry.KDTreeSearchParamHybrid(radius=fpfh_radius, max_nn=fpfh_max_nn)
         )
-        return pcd_fpfh
+        return pcd_down, pcd_fpfh
 
     def compute_Tc1c0_FPFH(
             self,
-            Pcs0: o3d.geometry.PointCloud, Pcs1: o3d.geometry.PointCloud,
-            Pcs0_fpfh: o3d.pipelines.registration.Feature,
-            Pcs1_fpfh: o3d.pipelines.registration.Feature,
-            distance_threshold, method='fgr', ransac_n=4,
+            Pcs0: o3d.geometry.PointCloud, Pcs1: o3d.geometry.PointCloud, voxel_size,
+            kdtree_radius=None, kdtree_max_nn=30, fpfh_radius=None, fpfh_max_nn=100,
+            distance_threshold=None, method='fgr', ransac_n=4,
     ):
+        '''
+        voxel size is usually 0.05, do not set too small value
+        '''
+
+        Pcs0_down, Pcs0_fpfh = self.compute_fpfh_feature(
+            Pcs0, voxel_size, kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn
+        )
+        Pcs1_down, Pcs1_fpfh = self.compute_fpfh_feature(
+            Pcs1, voxel_size, kdtree_radius, kdtree_max_nn, fpfh_radius, fpfh_max_nn
+        )
+
+        o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
+
+        if distance_threshold is None:
+            distance_threshold = voxel_size * 1.4
+        print('[DEBUG]: Method:%s distance_threshold:%f'%(method, distance_threshold))
+
         if method == 'fgr':
             res = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
-                Pcs0, Pcs1, Pcs0_fpfh, Pcs1_fpfh,
+                Pcs0_down, Pcs1_down, Pcs0_fpfh, Pcs1_fpfh,
                 o3d.pipelines.registration.FastGlobalRegistrationOption(
                     maximum_correspondence_distance=distance_threshold)
             )
 
         elif method == 'ransac':
             res = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-                Pcs0, Pcs1, Pcs0_fpfh, Pcs1_fpfh,
+                Pcs0_down, Pcs1_down, Pcs0_fpfh, Pcs1_fpfh,
                 mutual_filter=False, max_correspondence_distance=distance_threshold,
                 ### since here are just sparse point mapping, so only PointToPoint ICP is suitable
                 estimation_method = o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
@@ -550,6 +577,8 @@ class TF_utils(object):
         else:
             raise ValueError
 
+        o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
         if (res.transformation.trace() == 4.0):
             return False, (None, None)
 
@@ -559,7 +588,8 @@ class TF_utils(object):
         if information[5, 5] / min(len(Pcs0.points), len(Pcs1.points)) < 0.3:
             return False, (None, None)
 
-        return True, (res.transformation, information)
+        T_c1_c0 = res.transformation
+        return True, (T_c1_c0, information)
 
 class TFSearcher(object):
     class TFNode(object):
@@ -788,17 +818,83 @@ class NetworkGraph_utils(object):
 
         return sub_graphes
 
-    def find_semi_largest_cliques(self, graph: nx.Graph):
-        # a = nx.community.k_clique_communities(graph, k=3)
-        # a = nx.find_cliques(a)
-        # self.plot_graph(graph)
+    def find_semi_largest_cliques(
+            self, graph: nx.Graph, multi, k=3, connective_degree_thre=2, run_times=1
+    ):
+        agent = self.create_graph(multi=multi)
 
-        raise NotImplementedError
+        agent_to_graph, graph_to_agent = {}, {}
+        for agentIdx, nodeIdx in enumerate(graph.nodes):
+            agent_to_graph[agentIdx] = nodeIdx
+            graph_to_agent[nodeIdx] = agentIdx
+            agent.add_node(agentIdx)
+
+        for edge in graph.edges:
+            edgeIdx0, edgeIdx1, weight = edge
+            agentIdx0, agentIdx1 = graph_to_agent[edgeIdx0], graph_to_agent[edgeIdx1]
+            agent.add_edge(agentIdx0, agentIdx1)
+
+        cliques = list(nx.community.k_clique_communities(agent, k=k))
+        # cliques = list(nx.find_cliques(agent))
+
+        node_connectiveIdxs = {}
+        for node in agent.nodes:
+            connective_idxs = list(nx.neighbors(agent, node))
+            node_connectiveIdxs[node] = connective_idxs
+
+        best_clique_num = -1
+        best_clique = None
+        for clique in cliques:
+            clique = list(clique)
+            if len(clique) < 3:
+                continue
+
+            extend_clique = self.larger_clique(agent, clique, node_connectiveIdxs, connective_degree_thre, run_times)
+            num_nodes = len(extend_clique)
+            if num_nodes > best_clique_num:
+                best_clique_num = num_nodes
+                best_clique = extend_clique
+
+        graph_cliqueIdxs = [agent_to_graph[agentIdx] for agentIdx in best_clique]
+        clique_graph = graph.subgraph(graph_cliqueIdxs)
+
+        return clique_graph
+
+    def larger_clique(
+            self, graph: nx.Graph, clique: List, node_connectiveIdxs,
+            connective_degree_thre=2, run_times=1
+    ):
+        nodes_set = list(graph.nodes)
+        num_nodes = graph.number_of_nodes()
+
+        while True:
+            if run_times == 0:
+                break
+
+            additional_nodes = []
+            rest_nodes = list(np.setdiff1d(nodes_set, clique))
+
+            if len(rest_nodes) == 0:
+                break
+
+            for rest_node in rest_nodes:
+                connective_idxs = node_connectiveIdxs[rest_node]
+
+                connective_degrees = np.zeros((num_nodes,))
+                connective_degrees[connective_idxs] += 1
+
+                if connective_degrees[clique].sum() >= connective_degree_thre:
+                    additional_nodes.append(rest_node)
+
+            if len(additional_nodes) == 0:
+                break
+
+            clique.extend(additional_nodes)
+            run_times -= 1
+
+        return clique
+
 
 if __name__ == '__main__':
     network_coder = NetworkGraph_utils()
-    network = network_coder.load_graph(
-        '/home/quan/Desktop/tempary/redwood/test6_1/fragments/fragment_4/network.pkl', multi=True
-    )
-
-    network_coder.find_semi_largest_cliques(network)
+    network = network_coder.plot_graph_from_file('/home/quan/Desktop/tempary/redwood/test6_3/fragments/fragment_21/network.pkl', multi=True)

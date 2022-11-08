@@ -170,7 +170,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--intrinsics_path', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003/instrincs.json'
-                        default='/home/quan/Desktop/tempary/redwood/test6_1/intrinsic.json'
+                        default='/home/quan/Desktop/tempary/redwood/test6_3/intrinsic.json'
                         )
     parser.add_argument('--dataset_dir', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003'
@@ -207,8 +207,8 @@ def main():
         'tsdf_size': 0.015,
         'sdf_size': 0.005,
 
-        'workspace': '/home/quan/Desktop/tempary/redwood/test6_1/',
-        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test6_1/fragments',
+        'workspace': '/home/quan/Desktop/tempary/redwood/test6_3/',
+        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test6_3/fragments',
         'intrinsics_path': args.intrinsics_path,
     }
     recon_sys = System_Extract_KeyFrame(dataloader.K, config=config)

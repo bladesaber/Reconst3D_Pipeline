@@ -199,12 +199,16 @@ class Fragment(object):
                 # tf_searcher.add_Tc1c0Tree_Edge(tStep_j, tStep_i, np.linalg.inv(T_cj_ci))
 
         ### ----------
+        np.save(os.path.join(fragment_dir, 'edges_info'), edge_infos)
 
         whole_network = networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
-        networkx_coder.plot_graph(whole_network)
+        # networkx_coder.plot_graph(whole_network)
+
+        if whole_network.number_of_nodes() > 0:
+            whole_network = networkx_coder.find_semi_largest_cliques(whole_network, run_times=2, multi=True)
+            # networkx_coder.plot_graph(whole_network)
 
         networkx_coder.save_graph(whole_network, os.path.join(fragment_dir, 'network.pkl'))
-        np.save(os.path.join(fragment_dir, 'edges_info'), edge_infos)
 
     def optimize_network_PoseGraph(self, fragment_dir, networkx_coder: NetworkGraph_utils):
         network = networkx_coder.load_graph(os.path.join(fragment_dir, 'network.pkl'), multi=True)
@@ -404,6 +408,17 @@ class Fragment(object):
 
         return True, (T_cj_ci, icp_info)
 
+    def compute_fpfh_feature(self, voxel_size=0.05):
+        Pcs_o3d_down = self.Pcs_o3d.voxel_down_sample(voxel_size)
+        Pcs_o3d_down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2.0, max_nn=30)
+        )
+        Pcs_o3d_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+            Pcs_o3d_down, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5.0, max_nn=100)
+        )
+        self.Pcs_o3d_down = Pcs_o3d_down
+        self.Pcs_o3d_fpfh = Pcs_o3d_fpfh
+
     @staticmethod
     def create_mask(depth_img, max_depth_thre, min_depth_thre):
         mask_img = np.ones(depth_img.shape, dtype=np.uint8) * 255
@@ -445,15 +460,13 @@ class Fragment(object):
         h_scale, w_scale = int(h * scale), int(w * scale)
         img0 = cv2.resize(img0, (w_scale, h_scale))
         img1 = cv2.resize(img1, (w_scale, h_scale))
-        kps0 = kps0 * scale
-        kps1 = kps1 * scale
 
         w_shift = img0.shape[1]
         img_concat = np.concatenate((img0, img1), axis=1)
 
         for kp0, kp1 in zip(kps0, kps1):
-            x0, y0 = int(kp0[0]), int(kp0[1])
-            x1, y1 = int(kp1[0]), int(kp1[1])
+            x0, y0 = int(kp0[0] * scale), int(kp0[1] * scale)
+            x1, y1 = int(kp1[0] * scale), int(kp1[1] * scale)
             x1 = x1 + w_shift
             cv2.circle(img_concat, (x0, y0), radius=3, color=(255, 0, 0), thickness=1)
             cv2.circle(img_concat, (x1, y1), radius=3, color=(255, 0, 0), thickness=1)

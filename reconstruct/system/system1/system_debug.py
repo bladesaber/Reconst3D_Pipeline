@@ -62,6 +62,11 @@ class MergeSystem(object):
         fragment_dir = self.config['fragment_dir']
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
+
+            graph = self.networkx_coder.load_graph(os.path.join(sub_fragment_dir, 'network.pkl'), multi=True)
+            if graph.number_of_nodes() == 0:
+                continue
+
             fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
             fragment: Fragment = load_fragment(fragment_file)
 
@@ -76,6 +81,11 @@ class MergeSystem(object):
         fragment_dir = self.config['fragment_dir']
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
+
+            graph = self.networkx_coder.load_graph(os.path.join(sub_fragment_dir, 'network.pkl'), multi=True)
+            if graph.number_of_nodes() == 0:
+                continue
+
             fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
             fragment: Fragment = load_fragment(fragment_file)
 
@@ -96,6 +106,9 @@ class MergeSystem(object):
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
             fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
+            if not os.path.exists(fragment_file):
+                continue
+
             fragment: Fragment = load_fragment(fragment_file)
             fragment.load_Pcs()
             fragment.load_network(sub_fragment_dir, self.networkx_coder)
@@ -191,6 +204,15 @@ class MergeSystem(object):
 
         if midxs_i.shape[0] == 0:
             print('[DEBUG]: Find Correspond Feature Fail')
+
+            # ### --- debug
+            # show_img = Fragment.draw_matches(rgb_i, [], rgb_j, [], scale=0.7)
+            # cv2.imshow('debug', show_img)
+            # key = cv2.waitKey(0)
+            # if key == ord('q'):
+            #     return
+            # ### ---------------
+
             return False, None
 
         kps_i, kps_j = kps_i[midxs_i], kps_j[midxs_j]
@@ -219,6 +241,15 @@ class MergeSystem(object):
         )
         if not status:
             print('[DEBUG]: Estimate Tc1c0 RANSAC Fail')
+
+            # ### --- debug
+            # show_img = Fragment.draw_matches(rgb_i, kps_i, rgb_j, kps_j, scale=0.7)
+            # cv2.imshow('debug', show_img)
+            # key = cv2.waitKey(0)
+            # if key == ord('q'):
+            #     return
+            # ### ---------------
+
             return False, None
 
         T_ci_fragI = info_i['T_c_frag']
@@ -279,6 +310,9 @@ class MergeSystem(object):
         for sub_fragment_dir in os.listdir(fragment_dir):
             sub_fragment_dir = os.path.join(fragment_dir, sub_fragment_dir)
             fragment_file = os.path.join(sub_fragment_dir, 'refine_fragment.pkl')
+            if not os.path.exists(fragment_file):
+                continue
+
             fragment: Fragment = load_fragment(fragment_file)
             fragment.load_network(sub_fragment_dir, self.networkx_coder)
 
@@ -485,15 +519,15 @@ def main():
 
         'fragment_tsdf_size': 0.01,
         'fragment_sdf_trunc': 0.1,
-        'fragment_Inner_dbow_score_thre': 0.009,
+        'fragment_Inner_dbow_score_thre': 0.01,
 
         'tsdf_size': 0.01,
         'sdf_trunc': 0.05,
         'check_voxel_size': 0.02,
 
-        'workspace': '/home/quan/Desktop/tempary/redwood/test6_1/',
-        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test6_1/fragments',
-        'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test6_1/intrinsic.json',
+        'workspace': '/home/quan/Desktop/tempary/redwood/test6_3/',
+        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test6_3/fragments',
+        'intrinsics_path': '/home/quan/Desktop/tempary/redwood/test6_3/intrinsic.json',
         'vocabulary_path': '/home/quan/Desktop/company/Reconst3D_Pipeline/slam_py_env/Vocabulary/voc.yml.gz',
 
     }
@@ -506,12 +540,12 @@ def main():
 
     # recon_sys.extract_fragment_matchPair_DBOW()
 
-    # recon_sys.extract_connective_network()
+    recon_sys.extract_connective_network()
 
     # recon_sys.optimize_network()
 
     # recon_sys.extract_Pcd(with_mask=True)
-    recon_sys.check_Pcd(with_mask=True)
+    # recon_sys.check_Pcd(with_mask=True)
 
 if __name__ == '__main__':
     main()
