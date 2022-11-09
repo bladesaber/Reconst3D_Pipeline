@@ -17,6 +17,7 @@ from reconstruct.system.system1.poseGraph_utils import PoseGraph_System
 from reconstruct.system.system1.fragment_utils import load_fragment, save_fragment, Fragment
 
 ### TODO Add FPFH Feature Pose Graph Edge
+### TODO 根据位姿图的边进行节点过滤
 
 class MergeSystem(object):
     def __init__(self, config):
