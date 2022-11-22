@@ -100,7 +100,7 @@ class MergeSystem(object):
                 o3d.visualization.draw_geometries([fragment.Pcs_o3d], width=960, height=720)
 
     ### -----------------------------------------
-    def extract_fragment_matchPair_DBOW(self):
+    def extract_fragment_matchPair(self):
         self.voc = self.dbow_coder.load_voc(self.config['vocabulary_path'], log=True)
 
         fragment_dir = self.config['fragment_dir']
@@ -139,7 +139,22 @@ class MergeSystem(object):
                 fragment_j: Fragment = fragments_dict[fragment_j_idx]
 
                 refine_match = self.fragment_match_dbow(fragment_i, fragment_j, score_thre=0.009, match_num=10)
-                match_infos.extend(refine_match)
+
+                if len(refine_match) > 0:
+                    match_infos.extend(refine_match)
+                    continue
+
+                status, res = self.fragment_match_fpfh(
+                    fragment_i, fragment_j, voxel_size=self.config['fpfh_voxel_size']
+                )
+                if status:
+                    T_fragJ_fragI, icp_info = res
+
+                    tStep_i = fragment_i.info.keys()[0]
+                    tStep_j = fragment_j.info.keys()[0]
+                    match_infos.append(
+                        [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info]
+                    )
 
         np.save(os.path.join(self.config['workspace'], 'match_info'), match_infos)
 
@@ -303,6 +318,42 @@ class MergeSystem(object):
             return False, None
 
         return True, (T_fragJ_fragI, icp_info)
+
+    def fragment_match_fpfh(self, fragment_i: Fragment, fragment_j: Fragment, voxel_size):
+        status, res = self.tf_coder.compute_Tc1c0_FPFH(
+            Pcs0=fragment_i.Pcs_o3d, Pcs1=fragment_j.Pcs_o3d,
+            voxel_size=voxel_size, method='ransac',
+            kdtree_radius=voxel_size * 2.0, kdtree_max_nn=30,
+            fpfh_radius=voxel_size * 5.0, fpfh_max_nn=100,
+            distance_threshold=voxel_size * 1.4, ransac_n=4,
+        )
+
+        if status:
+            T_fragJ_fragI, icp_info = res
+
+            ### ------ debug visual ICP ------
+            print('[DEBUG]: %s <-> %s Visual ICP Debug' % (fragment_i, fragment_j))
+            show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
+            show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
+            show_Pcs_i = show_Pcs_i.transform(T_fragJ_fragI)
+            show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
+            show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
+            o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j])
+            ### -------------
+
+            res, icp_info = self.tf_coder.compute_Tc1c0_ICP(
+                fragment_i.Pcs_o3d, fragment_j.Pcs_o3d,
+                voxelSizes=[0.03, 0.01], maxIters=[100, 50], init_Tc1c0=T_fragJ_fragI
+            )
+            T_fragJ_fragI = res.transformation
+
+            if res.fitness < 0.3:
+                print('[DEBUG]: ICP Fail fitness:%f'%res.fitness)
+                return False, None
+
+            return True, (T_fragJ_fragI, icp_info)
+
+        return False, None
 
     ### -----------------------------------------
     def extract_connective_network(self):
@@ -523,6 +574,7 @@ def main():
         'voxel_size': 0.015,
         'visual_ransac_max_distance': 0.05,
         'visual_ransac_inlier_thre': 0.8,
+        'fpfh_voxel_size': 0.08,
 
         'fragment_tsdf_size': 0.01,
         'fragment_sdf_trunc': 0.1,
@@ -545,7 +597,7 @@ def main():
     # recon_sys.extract_fragment_Pcs()
     # recon_sys.check_Pcs_network()
 
-    # recon_sys.extract_fragment_matchPair_DBOW()
+    # recon_sys.extract_fragment_matchPair()
 
     # recon_sys.extract_connective_network()
 
