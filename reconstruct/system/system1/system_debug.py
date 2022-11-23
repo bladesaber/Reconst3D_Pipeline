@@ -145,18 +145,18 @@ class MergeSystem(object):
                     print('[DEBUG]: Visual Match Success')
                     continue
 
-                # ### todo there are a lot of problem here, if you want to use fpfh please remove outlier pose first
-                # status, res = self.fragment_match_fpfh(
-                #     fragment_i, fragment_j, voxel_size=self.config['fpfh_voxel_size']
-                # )
-                # if status:
-                #     T_fragJ_fragI, icp_info = res
-                #
-                #     tStep_i = list(fragment_i.info.keys())[0]
-                #     tStep_j = list(fragment_j.info.keys())[0]
-                #     match_infos.append(
-                #         [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info]
-                #     )
+                ### todo there are a lot of problem here, if you want to use fpfh please remove outlier pose first
+                status, res = self.fragment_match_fpfh(
+                    fragment_i, fragment_j, voxel_size=self.config['fpfh_voxel_size']
+                )
+                if status:
+                    T_fragJ_fragI, icp_info = res
+
+                    tStep_i = list(fragment_i.info.keys())[0]
+                    tStep_j = list(fragment_j.info.keys())[0]
+                    match_infos.append(
+                        [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info, 'fpfh_method']
+                    )
 
         np.save(os.path.join(self.config['workspace'], 'match_info'), match_infos)
 
@@ -198,7 +198,7 @@ class MergeSystem(object):
             if status:
                 T_fragJ_fragI, icp_info = res
                 refine_match_pair.append(
-                    [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info]
+                    [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info, 'visual_method']
                 )
 
         return refine_match_pair
@@ -353,16 +353,16 @@ class MergeSystem(object):
                 print('[DEBUG]: ICP Fail fitness:%f'%res.fitness)
                 return False, None
 
-            ### ------ debug Point Cloud ICP ------
-            print('[DEBUG]: Success Point Cloud ICP Debug')
-            print('[DEBUG]: %s <-> %s fitness:%f' % (fragment_i, fragment_j, res.fitness))
-            show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
-            show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
-            show_Pcs_i = show_Pcs_i.transform(T_fragJ_fragI)
-            show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
-            show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
-            o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j], width=960, height=720)
-            ### -------------
+            # ### ------ debug Point Cloud ICP ------
+            # print('[DEBUG]: Success Point Cloud ICP Debug')
+            # print('[DEBUG]: %s <-> %s fitness:%f' % (fragment_i, fragment_j, res.fitness))
+            # show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
+            # show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
+            # show_Pcs_i = show_Pcs_i.transform(T_fragJ_fragI)
+            # show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
+            # show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
+            # o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j], width=960, height=720)
+            # ### -------------
 
             return True, (T_fragJ_fragI, icp_info)
 
@@ -393,9 +393,9 @@ class MergeSystem(object):
 
         edges_info = {}
         for edgeIdx, info in enumerate(match_infos):
-            fragment_i_idx, fragment_j_idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info = info
+            fragment_i_idx, fragment_j_idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info, method = info
 
-            edgeIdx = 'loop_%s'%Fragment.edgeIdx_encodeing(fragment_i_idx, fragment_j_idx)
+            edgeIdx = '%s'%Fragment.edgeIdx_encodeing(fragment_i_idx, fragment_j_idx)
             if edgeIdx not in edges_info.keys():
                 whole_network.add_edge(fragment_i_idx, fragment_j_idx, edgeIdx)
                 edges_info[edgeIdx] = []
@@ -407,6 +407,7 @@ class MergeSystem(object):
                 'icp_info': icp_info,
                 'tStep_i': tStep_i,
                 'tStep_j': tStep_j,
+                'method': method,
             })
 
         self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=0, recursion=True)
@@ -426,7 +427,7 @@ class MergeSystem(object):
                 T_w_ci = fragment_i.Twc
                 T_cj_ci = T_cj_w.dot(T_w_ci)
 
-                edgeIdx = 'direct_%s' %Fragment.edgeIdx_encodeing(fragment_i_idx, fragment_j_idx)
+                edgeIdx = '%s' %Fragment.edgeIdx_encodeing(fragment_i_idx, fragment_j_idx)
                 if edgeIdx not in edges_info.keys():
                     whole_network.add_edge(fragment_j_idx, fragment_i_idx, edgeIdx)
                     edges_info[edgeIdx] = []
@@ -438,6 +439,7 @@ class MergeSystem(object):
                     'icp_info': np.eye(6),
                     'tStep_i': fragment_i.t_start_step,
                     'tStep_j': fragment_j.t_start_step,
+                    'method': 'direct',
                 })
         ### -----------------------
         # self.networkx_coder.plot_graph(whole_network)
@@ -453,6 +455,35 @@ class MergeSystem(object):
         self.networkx_coder.plot_graph(whole_network)
 
     ### ----------------------------------------
+    def remove_edge_outlier(self):
+        edges_info = np.load(os.path.join(self.config['workspace'], 'edges_info.npy'), allow_pickle=True).item()
+
+        fragments_dict = {}
+        edges_dict = {}
+        complete_network = self.networkx_coder.create_graph(multi=True)
+        for key in edges_info.keys():
+            edge_infos = edges_info[key]
+            for info in edge_infos:
+                edge_id = len(edges_dict)
+
+                fragment_i = info['fragment_i_idx']
+                if fragment_i not in fragments_dict.keys():
+                    fragments_dict[fragment_i] = None
+                    complete_network.add_node(fragment_i)
+
+                fragment_j = info['fragment_j_idx']
+                if fragment_j not in fragments_dict.keys():
+                    fragments_dict[fragment_j] = None
+                    complete_network.add_node(fragment_j)
+
+                complete_network.add_edge(fragment_i, fragment_j, edge_id)
+                edges_dict[edge_id] = info
+
+        a = list(nx.find_cliques(complete_network))
+        # print(a)
+        # self.networkx_coder.plot_graph(complete_network)
+        print(complete_network.edges)
+
     def optimize_network(self):
         fragment_dir = self.config['fragment_dir']
 
@@ -484,10 +515,16 @@ class MergeSystem(object):
             for pair_info in match_pair_infos:
                 fragment_i_idx, fragment_j_idx = pair_info['fragment_i_idx'], pair_info['fragment_j_idx']
                 nodeIdx_i, nodeIdx_j = fragment_to_nodeIdx[fragment_i_idx], fragment_to_nodeIdx[fragment_j_idx]
+                method = pair_info['method']
 
-                uncertain = True
-                if 'loop' in tag:
+                if method == 'visual_method':
                     uncertain = False
+                elif method == 'fpfh_method':
+                    uncertain = True
+                elif method == 'direct':
+                    uncertain = True
+                else:
+                    raise NotImplementedError
 
                 poseGraph_system.add_Edge(
                     idx0=nodeIdx_i, idx1=nodeIdx_j,
@@ -593,7 +630,7 @@ def main():
         'visual_ransac_max_distance': 0.05,
         'visual_ransac_inlier_thre': 0.8,
         'fpfh_voxel_size': 0.05,
-        'FPFH_thre': 0.6,
+        'FPFH_thre': 0.55,
 
         'fragment_tsdf_size': 0.01,
         'fragment_sdf_trunc': 0.1,
@@ -620,14 +657,15 @@ def main():
     # recon_sys.extract_fragment_Pcs()
     # recon_sys.check_Pcs_network()
 
-    # recon_sys.extract_fragment_matchPair()
+    recon_sys.extract_fragment_matchPair()
 
-    # recon_sys.extract_connective_network()
+    recon_sys.extract_connective_network()
+    # recon_sys.remove_edge_outlier()
 
-    # recon_sys.optimize_network()
+    recon_sys.optimize_network()
 
-    # recon_sys.extract_Pcd(with_mask=True)
-    # recon_sys.check_Pcd(with_mask=True)
+    recon_sys.extract_Pcd(with_mask=True)
+    recon_sys.check_Pcd(with_mask=True)
 
 if __name__ == '__main__':
     main()
