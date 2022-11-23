@@ -202,12 +202,12 @@ class Fragment(object):
         np.save(os.path.join(fragment_dir, 'edges_info'), edge_infos)
 
         whole_network = networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
-        networkx_coder.plot_graph(whole_network)
+        # networkx_coder.plot_graph(whole_network)
 
-        ### test clique network
+        # ### todo test clique network
         # if whole_network.number_of_nodes() > 0:
         #     whole_network = networkx_coder.find_semi_largest_cliques(whole_network, run_times=2, multi=True)
-        #     # networkx_coder.plot_graph(whole_network)
+        #     networkx_coder.plot_graph(whole_network)
 
         networkx_coder.save_graph(whole_network, os.path.join(fragment_dir, 'network.pkl'))
 

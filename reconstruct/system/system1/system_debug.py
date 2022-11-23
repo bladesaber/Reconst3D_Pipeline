@@ -139,22 +139,24 @@ class MergeSystem(object):
                 fragment_j: Fragment = fragments_dict[fragment_j_idx]
 
                 refine_match = self.fragment_match_dbow(fragment_i, fragment_j, score_thre=0.009, match_num=10)
+                match_infos.extend(refine_match)
 
                 if len(refine_match) > 0:
-                    match_infos.extend(refine_match)
+                    print('[DEBUG]: Visual Match Success')
                     continue
 
-                status, res = self.fragment_match_fpfh(
-                    fragment_i, fragment_j, voxel_size=self.config['fpfh_voxel_size']
-                )
-                if status:
-                    T_fragJ_fragI, icp_info = res
-
-                    tStep_i = fragment_i.info.keys()[0]
-                    tStep_j = fragment_j.info.keys()[0]
-                    match_infos.append(
-                        [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info]
-                    )
+                # ### todo there are a lot of problem here, if you want to use fpfh please remove outlier pose first
+                # status, res = self.fragment_match_fpfh(
+                #     fragment_i, fragment_j, voxel_size=self.config['fpfh_voxel_size']
+                # )
+                # if status:
+                #     T_fragJ_fragI, icp_info = res
+                #
+                #     tStep_i = list(fragment_i.info.keys())[0]
+                #     tStep_j = list(fragment_j.info.keys())[0]
+                #     match_infos.append(
+                #         [fragment_i.idx, fragment_j.idx, tStep_i, tStep_j, T_fragJ_fragI, icp_info]
+                #     )
 
         np.save(os.path.join(self.config['workspace'], 'match_info'), match_infos)
 
@@ -331,25 +333,36 @@ class MergeSystem(object):
         if status:
             T_fragJ_fragI, icp_info = res
 
-            ### ------ debug visual ICP ------
-            print('[DEBUG]: %s <-> %s Visual ICP Debug' % (fragment_i, fragment_j))
+            # ### ------ debug visual ICP ------
+            # print('[DEBUG]: %s <-> %s FPFH ICP Debug' % (fragment_i, fragment_j))
+            # show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
+            # show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
+            # show_Pcs_i = show_Pcs_i.transform(T_fragJ_fragI)
+            # show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
+            # show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
+            # o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j])
+            # ### -------------
+
+            res, icp_info = self.tf_coder.compute_Tc1c0_ICP(
+                fragment_i.Pcs_o3d, fragment_j.Pcs_o3d,
+                voxelSizes=[0.03, 0.01], maxIters=[150, 100], init_Tc1c0=T_fragJ_fragI
+            )
+            T_fragJ_fragI = res.transformation
+
+            if res.fitness < self.config['FPFH_thre']:
+                print('[DEBUG]: ICP Fail fitness:%f'%res.fitness)
+                return False, None
+
+            ### ------ debug Point Cloud ICP ------
+            print('[DEBUG]: Success Point Cloud ICP Debug')
+            print('[DEBUG]: %s <-> %s fitness:%f' % (fragment_i, fragment_j, res.fitness))
             show_Pcs_i = deepcopy(fragment_i.Pcs_o3d)
             show_Pcs_i = self.pcd_coder.change_pcdColors(show_Pcs_i, np.array([1.0, 0.0, 0.0]))
             show_Pcs_i = show_Pcs_i.transform(T_fragJ_fragI)
             show_Pcs_j = deepcopy(fragment_j.Pcs_o3d)
             show_Pcs_j = self.pcd_coder.change_pcdColors(show_Pcs_j, np.array([0.0, 0.0, 1.0]))
-            o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j])
+            o3d.visualization.draw_geometries([show_Pcs_i, show_Pcs_j], width=960, height=720)
             ### -------------
-
-            res, icp_info = self.tf_coder.compute_Tc1c0_ICP(
-                fragment_i.Pcs_o3d, fragment_j.Pcs_o3d,
-                voxelSizes=[0.03, 0.01], maxIters=[100, 50], init_Tc1c0=T_fragJ_fragI
-            )
-            T_fragJ_fragI = res.transformation
-
-            if res.fitness < 0.3:
-                print('[DEBUG]: ICP Fail fitness:%f'%res.fitness)
-                return False, None
 
             return True, (T_fragJ_fragI, icp_info)
 
@@ -427,10 +440,11 @@ class MergeSystem(object):
                     'tStep_j': fragment_j.t_start_step,
                 })
         ### -----------------------
-        self.networkx_coder.plot_graph(whole_network)
+        # self.networkx_coder.plot_graph(whole_network)
 
         ### filter network
         whole_network = self.networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
+        # self.networkx_coder.plot_graph(whole_network)
 
         ### ------ extract info in network ------
         self.networkx_coder.save_graph(whole_network, os.path.join(self.config['workspace'], 'network.pkl'))
@@ -488,9 +502,9 @@ class MergeSystem(object):
         poseGraph_system.save_graph(os.path.join(self.config['workspace'], 'original_PoseGraph.json'))
 
         poseGraph_system.optimize_poseGraph(
-            max_correspondence_distance=0.05,
-            edge_prune_threshold=0.25,
-            preference_loop_closure=5.0,
+            max_correspondence_distance=self.config['max_correspondence_distance'],
+            edge_prune_threshold=self.config['edge_prune_threshold'],
+            preference_loop_closure=self.config['preference_loop_closure'],
             reference_node=0
         )
 
@@ -566,6 +580,10 @@ class MergeSystem(object):
 
         o3d.visualization.draw_geometries(vis_list)
 
+    ### ----------------------------------------
+    def integrate_detail_rgbd(self):
+        raise NotImplementedError
+
 def main():
     config = {
         'max_depth_thre': 3.0,
@@ -574,11 +592,16 @@ def main():
         'voxel_size': 0.015,
         'visual_ransac_max_distance': 0.05,
         'visual_ransac_inlier_thre': 0.8,
-        'fpfh_voxel_size': 0.08,
+        'fpfh_voxel_size': 0.05,
+        'FPFH_thre': 0.6,
 
         'fragment_tsdf_size': 0.01,
         'fragment_sdf_trunc': 0.1,
         'fragment_Inner_dbow_score_thre': 0.01,
+
+        'max_correspondence_distance': 0.05,
+        'edge_prune_threshold': 0.25,
+        'preference_loop_closure': 5.0,
 
         'tsdf_size': 0.01,
         'sdf_trunc': 0.05,

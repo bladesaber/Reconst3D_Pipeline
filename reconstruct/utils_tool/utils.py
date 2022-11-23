@@ -551,7 +551,7 @@ class TF_utils(object):
 
         if distance_threshold is None:
             distance_threshold = voxel_size * 1.4
-        print('[DEBUG]: Method:%s distance_threshold:%f'%(method, distance_threshold))
+        # print('[DEBUG]: Method:%s distance_threshold:%f'%(method, distance_threshold))
 
         if method == 'fgr':
             res = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
@@ -589,6 +589,8 @@ class TF_utils(object):
             return False, (None, None)
 
         T_c1_c0 = res.transformation
+        print('[DBUG]: Success Find FPFH Match')
+
         return True, (T_c1_c0, information)
 
 class TFSearcher(object):
