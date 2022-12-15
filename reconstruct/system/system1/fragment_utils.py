@@ -161,13 +161,18 @@ class Fragment(object):
                 'tStep_i': tStep_i,
                 'tStep_j': tStep_j,
                 'T_cj_ci': T_cj_ci,
-                'icp_info': icp_info
+                'icp_info': icp_info,
+                'method': 'visual_method'
             })
 
             # tf_searcher.add_TFTree_Edge(tStep_i, [tStep_j])
             # tf_searcher.add_Tc1c0Tree_Edge(tStep_i, tStep_j, T_cj_ci)
             # tf_searcher.add_TFTree_Edge(tStep_j, [tStep_i])
             # tf_searcher.add_Tc1c0Tree_Edge(tStep_j, tStep_i, np.linalg.inv(T_cj_ci))
+
+        whole_network = networkx_coder.remove_node_from_degree(whole_network, degree_thre=0, recursion=True)
+        # networkx_coder.plot_graph(whole_network)
+        tStep_sequence = sorted(whole_network.nodes)
 
         ### ------- add observation estimation
         for idx, tStep_i in enumerate(tStep_sequence):
@@ -190,7 +195,8 @@ class Fragment(object):
                     'tStep_i': tStep_i,
                     'tStep_j': tStep_j,
                     'T_cj_ci': T_cj_ci,
-                    'icp_info': np.eye(6)
+                    'icp_info': np.eye(6),
+                    'method': 'icp_method'
                 })
 
                 # tf_searcher.add_TFTree_Edge(tStep_i, [tStep_j])
@@ -202,12 +208,12 @@ class Fragment(object):
         np.save(os.path.join(fragment_dir, 'edges_info'), edge_infos)
 
         whole_network = networkx_coder.remove_node_from_degree(whole_network, degree_thre=1, recursion=True)
-        # networkx_coder.plot_graph(whole_network)
 
         # ### todo test clique network
         # if whole_network.number_of_nodes() > 0:
         #     whole_network = networkx_coder.find_semi_largest_cliques(whole_network, run_times=2, multi=True)
-        #     networkx_coder.plot_graph(whole_network)
+
+        # networkx_coder.plot_graph(whole_network)
 
         networkx_coder.save_graph(whole_network, os.path.join(fragment_dir, 'network.pkl'))
 
@@ -236,11 +242,15 @@ class Fragment(object):
                 tStep_i, tStep_j = pair_info['tStep_i'], pair_info['tStep_j']
                 nodeIdx_i, nodeIdx_j = tStep_to_nodeIdx[tStep_i], tStep_to_nodeIdx[tStep_j]
 
+                uncertain = True
+                if pair_info['method'] == 'visual_method':
+                    uncertain = False
+
                 poseGraph_system.add_Edge(
                     idx0=nodeIdx_i, idx1=nodeIdx_j,
                     Tc1c0=pair_info['T_cj_ci'],
                     info=pair_info['icp_info'],
-                    uncertain=True
+                    uncertain=uncertain
                 )
 
         poseGraph_system.pose_graph.nodes.extend(list(nodes))

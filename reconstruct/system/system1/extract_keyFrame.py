@@ -170,11 +170,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--intrinsics_path', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003/instrincs.json'
-                        default='/home/quan/Desktop/tempary/redwood/test6_3/intrinsic.json'
+                        default='/home/quan/Desktop/tempary/redwood/test7/intrinsic.json'
                         )
     parser.add_argument('--dataset_dir', type=str,
                         # default='/home/quan/Desktop/tempary/redwood/00003'
-                        default='/home/quan/Desktop/tempary/redwood/test6_1'
+                        default='/home/quan/Desktop/tempary/redwood/test7'
                         )
     args = parser.parse_args()
     return args
@@ -190,7 +190,7 @@ def main():
     dataloader = KinectCamera(
         dir=args.dataset_dir,
         intrinsics_path=args.intrinsics_path,
-        scalingFactor=1000.0, skip=5,
+        scalingFactor=1000.0, skip=4,
         load_mask=True
     )
 
@@ -204,11 +204,11 @@ def main():
         'tracking_Pcd_voxel_size': 0.01,
         'voxel_size': 0.02,
 
-        'tsdf_size': 0.015,
+        'tsdf_size': 0.01,
         'sdf_size': 0.005,
 
-        'workspace': '/home/quan/Desktop/tempary/redwood/test6_3/',
-        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test6_3/fragments',
+        'workspace': '/home/quan/Desktop/tempary/redwood/test7/',
+        'fragment_dir': '/home/quan/Desktop/tempary/redwood/test7/fragments',
         'intrinsics_path': args.intrinsics_path,
     }
     recon_sys = System_Extract_KeyFrame(dataloader.K, config=config)
